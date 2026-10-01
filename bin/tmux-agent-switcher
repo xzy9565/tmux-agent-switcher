@@ -1761,6 +1761,7 @@ class FallbackTuiAdapter(BaseAgentAdapter):
 
 ADAPTERS: List[BaseAgentAdapter] = [
     Osc7501Adapter(),
+    CursorAdapter(),
     CodexAdapter(),
     CommandCodeAdapter(),
     ClaudeAdapter(),
