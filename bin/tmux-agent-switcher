@@ -1230,6 +1230,8 @@ class ClaudeAdapter(BaseAgentAdapter):
             running = False
             status_map = {
                 "busy": ("⚡ run", 1),
+                "agents": ("🤖 subagent", 1),
+                "shell": ("🐚 shell", 1),
                 "waiting": ("🔔 input", 0)
             }
             if st in status_map:
