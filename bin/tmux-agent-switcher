@@ -23,16 +23,14 @@ import subprocess
 import sys
 import textwrap
 import time
+import unicodedata
 import urllib.parse
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Any, Set
 
 
 
-# ==============================================================================
-# SECTION: Configuration & Terminal ANSI Styling
-# Source: core/config.py
-# ==============================================================================
+# --- Configuration & Terminal ANSI Styling (core/config.py) ---
 """Terminal color palettes, ANSI escape codes, and display utilities."""
 
 # Basic ANSI Controls
@@ -83,13 +81,16 @@ C_BAR_USER = "\033[38;2;168;85;247m"
 SHELLS = ("zsh", "-zsh", "bash", "sh", "fish")
 
 def char_width(c: str) -> int:
-    """Return monospace display width for a single character (handles CJK/emojis)."""
+    """Return monospace display width for a single character (handles CJK/emojis/symbols)."""
+    if unicodedata.east_asian_width(c) in ("W", "F"):
+        return 2
     cp = ord(c)
-    if (0x1100 <= cp <= 0x115F or 0x2E80 <= cp <= 0xA4CF or
+    if (0x1F300 <= cp <= 0x1FAFF or 0x2600 <= cp <= 0x27BF or
+        0x1100 <= cp <= 0x115F or 0x2E80 <= cp <= 0xA4CF or
         0xAC00 <= cp <= 0xD7A3 or 0xF900 <= cp <= 0xFAFF or
         0xFE10 <= cp <= 0xFE19 or 0xFE30 <= cp <= 0xFE6F or
         0xFF00 <= cp <= 0xFF60 or 0xFFE0 <= cp <= 0xFFE6 or
-        0x1F300 <= cp <= 0x1F9FF or 0x20000 <= cp <= 0x2FA1F):
+        0x20000 <= cp <= 0x2FA1F):
         return 2
     return 1
 
@@ -106,127 +107,86 @@ def pad_str(s: str, target_width: int) -> str:
     return s + " " * pad
 
 
-# ==============================================================================
-# SECTION: Core Data Types
-# Source: core/types.py
-# ==============================================================================
+# --- Core Data Types (core/types.py) ---
 """Core data types and structures for Tmux Agent Switcher."""
 
 @dataclass
 class PaneContext:
-    """Represents full contextual metadata of a single Tmux pane."""
-    pane_id: str                      # e.g. "%43" or "session:1.2"
-    pid: str                          # Root PID of the pane (shell or direct process)
-    current_command: str              # e.g. "zsh", "claude", "python3"
-    title: str                        # Pane title (from terminal escape or tmux)
-    bell_flag: str                    # "1" if bell was triggered
-    pane_active: str                  # "1" if pane is active in its window
-    window_active: str                # "1" if window is active in its session
-    session_attached: str             # "1" if session has a client attached
-    cwd: str                          # Current working directory of pane
-    tty: str                          # /dev/ttys00x
+    """Metadata of a single Tmux pane."""
+    pane_id: str
+    pid: str
+    current_command: str
+    title: str
+    bell_flag: str = "0"
+    pane_active: str = "0"
+    window_active: str = "0"
+    session_attached: str = "1"
+    cwd: str = ""
+    tty: str = ""
     width: str = ""
     height: str = ""
-    # Extended hook tags
-    claude_sid: str = ""              # #{@claude-session-id}
-    agy_tag: str = ""                 # #{@agy-session-id}
-    cmd_code_sid: str = ""            # #{@command-code-session-id}
-    oc_tag: str = ""                  # #{@opencode-session-id}
-    omp_tag: str = ""                 # #{@omp-session-id}
-    pane_needs_input: str = ""        # #{@pane-needs-input}
-
-@dataclass
-class AgentStatusInfo:
-    """Result of agent detection and status extraction for list view."""
-    harness: str                      # e.g. "🟠 Claude", "🤖 AGY", "💻 Shell"
-    harness_color: str                # ANSI color escape sequence
-    status: str                       # e.g. "🔔 input", "⚡ run", "💤 idle"
-    status_color: str                 # ANSI color escape sequence
-    rank: int                         # Sort rank: 0 (input), 1 (run), 2 (idle), 3 (monitor), 4 (shell)
-    mtime: float                      # Epoch timestamp of last user/agent dialogue
-    age_str: str                      # e.g. "5s", "12m", "2h", "LIVE", " - "
-    display_title: str                # Title for the list column (up to 60 chars)
-    is_current: bool                  # True if currently focused pane
-    formatted_line: str = ""          # Complete ANSI formatted string for fzf
-
-@dataclass
-class TurnMessage:
-    """Represents a conversational turn."""
-    user: str = ""
-    assistant: str = ""
+    claude_sid: str = ""
+    agy_tag: str = ""
+    cmd_code_sid: str = ""
+    oc_tag: str = ""
+    omp_tag: str = ""
+    pane_needs_input: str = ""
 
 @dataclass
 class PreviewResult:
     """Formatted preview content for fzf right pane."""
-    source_label: str                 # Header label, e.g. "🟠 Claude · feature-auth"
-    content: str                      # Rendered ANSI content (bubbles, markdown, etc.)
+    source_label: str
+    content: str
 
 
-# ==============================================================================
-# SECTION: Process Tree & Tmux Introspection
-# Source: core/tmux.py
-# ==============================================================================
+# --- Process Tree & Tmux Introspection (core/tmux.py) ---
 """Tmux interface and process tree discovery utilities."""
 
 OMP_PATTERN = r"(^|[\s/])omp(\s|$)"
 AGENTS_REGEX = re.compile(r"cursor-agent|codex|command-code|claude|grok|agy|opencode|" + OMP_PATTERN)
 
 class ProcessTree:
-    """Represents a snapshot of the operating system process tree."""
+    """Snapshot of the operating system process tree."""
 
-    def __init__(self, my_pid: Optional[str] = None):
-        self.my_pid = my_pid or str(os.getpid())
+    def __init__(self, tty: Optional[str] = None):
+        self.my_pid = str(os.getpid())
         self.tree: Dict[str, List[Tuple[str, str]]] = collections.defaultdict(list)
         self.cmd_of: Dict[str, str] = {}
-
-    @classmethod
-    def from_system(cls, tty: Optional[str] = None) -> "ProcessTree":
-        """Capture process tree for the entire system or scoped to a specific TTY."""
-        instance = cls()
         cmd = ["ps", "-t", tty, "-o", "pid,ppid,command"] if tty else ["ps", "-eo", "pid,ppid,command"]
         try:
-            res = subprocess.run(cmd, capture_output=True, check=False)
-            lines = res.stdout.decode("utf-8", errors="ignore").strip().splitlines()
-            for line in lines[1:]:
+            res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            for line in res.stdout.strip().splitlines()[1:]:
                 parts = line.strip().split(None, 2)
                 if len(parts) == 3:
-                    instance.tree[parts[1]].append((parts[0], parts[2]))
-                    instance.cmd_of[parts[0]] = parts[2]
+                    self.tree[parts[1]].append((parts[0], parts[2]))
+                    self.cmd_of[parts[0]] = parts[2]
         except Exception:
             pass
-        return instance
 
     def get_descendants(self, pid: str) -> str:
         """Collect command lines of all descendant processes under pid."""
-        cmds: List[str] = []
-        stack = [str(pid)]
+        cmds, stack = [], [str(pid)]
         while stack:
             curr = stack.pop()
             for child_pid, child_cmd in self.tree.get(curr, []):
-                if child_pid == self.my_pid:
-                    continue
-                cmds.append(child_cmd)
-                stack.append(child_pid)
+                if child_pid != self.my_pid:
+                    cmds.append(child_cmd)
+                    stack.append(child_pid)
         return " ".join(cmds)
 
     def get_descendant_pids(self, pid: str) -> List[str]:
         """Collect all descendant PIDs under pid."""
-        pids: List[str] = []
-        stack = [str(pid)]
+        pids, stack = [], [str(pid)]
         while stack:
             curr = stack.pop()
             for child_pid, _ in self.tree.get(curr, []):
-                if child_pid == self.my_pid:
-                    continue
-                pids.append(child_pid)
-                stack.append(child_pid)
+                if child_pid != self.my_pid:
+                    pids.append(child_pid)
+                    stack.append(child_pid)
         return pids
 
     def get_agent_heads(self, pid: str) -> str:
-        """
-        Find the shallowest process whose program (first two words) names an agent.
-        Deeper processes are tools whose args may accidentally mention another agent.
-        """
+        """Find the shallowest process whose command name matches an agent."""
         level = [str(pid)]
         while level:
             heads = " ".join(" ".join(self.cmd_of.get(p, "").split()[:2]) for p in level)
@@ -236,34 +196,16 @@ class ProcessTree:
         return ""
 
 def list_all_panes() -> List[PaneContext]:
-    """
-    Fetch all panes across all sessions in a single tmux list-panes call.
-    Zero per-pane overhead.
-    """
-    format_spec = (
-        "#{session_name}:#{window_index}.#{pane_index}\t"
-        "#{pane_pid}\t"
-        "#{pane_current_command}\t"
-        "#{pane_title}\t"
-        "#{window_bell_flag}\t"
-        "#{pane_active}\t"
-        "#{window_active}\t"
-        "#{@agy-session-id}\t"
-        "#{@pane-needs-input}\t"
-        "#{@command-code-session-id}\t"
-        "#{@claude-session-id}\t"
-        "#{pane_current_path}\t"
-        "#{session_attached}\t"
-        "#{@opencode-session-id}\t"
-        "#{@omp-session-id}\t"
-        "#{pane_tty}\t"
-        "#{pane_width}\t"
-        "#{pane_height}"
+    """Fetch all panes across all sessions in a single tmux list-panes call."""
+    fmt = (
+        "#{session_name}:#{window_index}.#{pane_index}\t#{pane_pid}\t#{pane_current_command}\t"
+        "#{pane_title}\t#{window_bell_flag}\t#{pane_active}\t#{window_active}\t#{@agy-session-id}\t"
+        "#{@pane-needs-input}\t#{@command-code-session-id}\t#{@claude-session-id}\t#{pane_current_path}\t"
+        "#{session_attached}\t#{@opencode-session-id}\t#{@omp-session-id}\t#{pane_tty}\t"
+        "#{pane_width}\t#{pane_height}"
     )
     try:
-        raw = subprocess.check_output([
-            "tmux", "list-panes", "-a", "-F", format_spec
-        ]).decode("utf-8", errors="ignore").strip().splitlines()
+        raw = subprocess.check_output(["tmux", "list-panes", "-a", "-F", fmt]).decode("utf-8", errors="ignore").splitlines()
     except Exception:
         return []
 
@@ -271,93 +213,37 @@ def list_all_panes() -> List[PaneContext]:
     for line in raw:
         if not line.strip():
             continue
-        parts = line.split("\t")
-        if len(parts) < 13:
-            continue
+        p = (line.split("\t") + [""] * 18)[:18]
         panes.append(PaneContext(
-            pane_id=parts[0],
-            pid=parts[1],
-            current_command=parts[2],
-            title=parts[3],
-            bell_flag=parts[4],
-            pane_active=parts[5],
-            window_active=parts[6],
-            agy_tag=parts[7].strip() if len(parts) > 7 else "",
-            pane_needs_input=parts[8].strip() if len(parts) > 8 else "",
-            cmd_code_sid=parts[9].strip() if len(parts) > 9 else "",
-            claude_sid=parts[10].strip() if len(parts) > 10 else "",
-            cwd=parts[11] if len(parts) > 11 else "",
-            session_attached=parts[12] if len(parts) > 12 else "1",
-            oc_tag=parts[13].strip() if len(parts) > 13 else "",
-            omp_tag=parts[14].strip() if len(parts) > 14 else "",
-            tty=parts[15].strip() if len(parts) > 15 else "",
-            width=parts[16].strip() if len(parts) > 16 else "",
-            height=parts[17].strip() if len(parts) > 17 else "",
+            pane_id=p[0], pid=p[1], current_command=p[2], title=p[3], bell_flag=p[4],
+            pane_active=p[5], window_active=p[6], agy_tag=p[7].strip(), pane_needs_input=p[8].strip(),
+            cmd_code_sid=p[9].strip(), claude_sid=p[10].strip(), cwd=p[11], session_attached=p[12] or "1",
+            oc_tag=p[13].strip(), omp_tag=p[14].strip(), tty=p[15].strip(), width=p[16].strip(), height=p[17].strip()
         ))
     return panes
 
 def get_pane_context(pane_id: str) -> Optional[PaneContext]:
     """Retrieve metadata for a specific target pane via tmux display-message."""
-    format_spec = (
-        "#{pane_pid}\t"
-        "#{pane_current_command}\t"
-        "#{pane_title}\t"
-        "#{pane_width}x#{pane_height}\t"
-        "#{pane_tty}\t"
-        "#{@claude-session-id}\t"
-        "#{@command-code-session-id}\t"
-        "#{@opencode-session-id}\t"
-        "#{@omp-session-id}\t"
-        "#{@agy-session-id}\t"
-        "#{@pane-needs-input}\t"
-        "#{pane_current_path}"
+    fmt = (
+        "#{pane_pid}\t#{pane_current_command}\t#{pane_title}\t#{pane_width}x#{pane_height}\t"
+        "#{pane_tty}\t#{@claude-session-id}\t#{@command-code-session-id}\t#{@opencode-session-id}\t"
+        "#{@omp-session-id}\t#{@agy-session-id}\t#{@pane-needs-input}\t#{pane_current_path}"
     )
     try:
-        raw_info = subprocess.check_output([
-            "tmux", "display-message", "-p", "-t", pane_id, format_spec
-        ]).decode("utf-8", errors="ignore").rstrip("\n").split("\t") + [""] * 12
-
-        geom = raw_info[3]
+        raw = (subprocess.check_output(["tmux", "display-message", "-p", "-t", pane_id, fmt])
+               .decode("utf-8", errors="ignore").rstrip("\n").split("\t") + [""] * 12)[:12]
+        geom = raw[3]
         w, h = geom.split("x") if "x" in geom else ("", "")
         return PaneContext(
-            pane_id=pane_id,
-            pid=raw_info[0],
-            current_command=raw_info[1] or "shell",
-            title=raw_info[2] or pane_id,
-            width=w,
-            height=h,
-            tty=raw_info[4],
-            claude_sid=raw_info[5],
-            cmd_code_sid=raw_info[6],
-            oc_tag=raw_info[7],
-            omp_tag=raw_info[8],
-            agy_tag=raw_info[9],
-            pane_needs_input=raw_info[10],
-            cwd=raw_info[11],
-            bell_flag="0",
-            pane_active="1",
-            window_active="1",
-            session_attached="1",
+            pane_id=pane_id, pid=raw[0], current_command=raw[1] or "shell", title=raw[2] or pane_id,
+            width=w, height=h, tty=raw[4], claude_sid=raw[5], cmd_code_sid=raw[6],
+            oc_tag=raw[7], omp_tag=raw[8], agy_tag=raw[9], pane_needs_input=raw[10], cwd=raw[11]
         )
     except Exception:
-        return PaneContext(
-            pane_id=pane_id,
-            pid="",
-            current_command="shell",
-            title=pane_id,
-            bell_flag="0",
-            pane_active="1",
-            window_active="1",
-            session_attached="1",
-            cwd="",
-            tty="",
-        )
+        return PaneContext(pane_id=pane_id, pid="", current_command="shell", title=pane_id)
 
 
-# ==============================================================================
-# SECTION: Unicode Table Renderer
-# Source: formatters/table.py
-# ==============================================================================
+# --- Unicode Table Renderer (formatters/table.py) ---
 """Unicode box-drawing table renderer for markdown tables."""
 
 def render_table(rows: List[str], style_inline_fn) -> List[str]:
@@ -418,10 +304,7 @@ def render_table(rows: List[str], style_inline_fn) -> List[str]:
     return res
 
 
-# ==============================================================================
-# SECTION: Markdown Syntax Styler
-# Source: formatters/markdown.py
-# ==============================================================================
+# --- Markdown Syntax Styler (formatters/markdown.py) ---
 """Markdown parser and ANSI syntax highlighter."""
 
 def wrap_text(text: str, width: int = 0, indent: int = 0) -> List[str]:
@@ -562,10 +445,7 @@ def render_md(text: str, preview_width: int = 0) -> str:
     return "\n".join(out)
 
 
-# ==============================================================================
-# SECTION: Terminal Screen De-Noiser
-# Source: formatters/denoiser.py
-# ==============================================================================
+# --- Terminal Screen De-Noiser (formatters/denoiser.py) ---
 """Terminal output semantic de-noiser."""
 
 DENOISE_PATTERNS = [
@@ -606,10 +486,7 @@ def denoise_terminal_text(text: str) -> str:
     return "\n".join(lines)
 
 
-# ==============================================================================
-# SECTION: Dialogue Turn Bubbles
-# Source: formatters/bubbles.py
-# ==============================================================================
+# --- Dialogue Turn Bubbles (formatters/bubbles.py) ---
 """Conversational turn bubble formatter for preview panel."""
 
 def format_turns(
@@ -669,10 +546,7 @@ def format_turns(
     return "\n\n".join(parts)
 
 
-# ==============================================================================
-# SECTION: Agent Adapter Interface & Duck Parsing
-# Source: adapters/base.py
-# ==============================================================================
+# --- Agent Adapter Interface & Duck Parsing (adapters/base.py) ---
 """Base interface and parsing utilities for AI Agent adapters."""
 
 def read_tail_lines(filepath: str, max_bytes: int = 800000, full: bool = False) -> List[str]:
@@ -837,10 +711,7 @@ class BaseAgentAdapter:
         raise NotImplementedError
 
 
-# ==============================================================================
-# SECTION: OSC 7501 Protocol Adapter Stub
-# Source: adapters/osc_7501.py
-# ==============================================================================
+# --- OSC 7501 Protocol Adapter Stub (adapters/osc_7501.py) ---
 """
 OSC 7501 Semantic Agent Protocol Adapter (Forward-Looking Stub).
 
@@ -882,10 +753,7 @@ class Osc7501Adapter(BaseAgentAdapter):
         return None
 
 
-# ==============================================================================
-# SECTION: Cursor Adapter
-# Source: adapters/cursor.py
-# ==============================================================================
+# --- Cursor Adapter (adapters/cursor.py) ---
 """Cursor agent adapter."""
 
 class CursorAdapter(BaseAgentAdapter):
@@ -989,10 +857,7 @@ class CursorAdapter(BaseAgentAdapter):
         return None
 
 
-# ==============================================================================
-# SECTION: OpenAI Codex Adapter
-# Source: adapters/codex.py
-# ==============================================================================
+# --- OpenAI Codex Adapter (adapters/codex.py) ---
 """OpenAI Codex adapter."""
 
 class CodexAdapter(BaseAgentAdapter):
@@ -1087,10 +952,7 @@ class CodexAdapter(BaseAgentAdapter):
         return None
 
 
-# ==============================================================================
-# SECTION: Command Code Adapter
-# Source: adapters/command_code.py
-# ==============================================================================
+# --- Command Code Adapter (adapters/command_code.py) ---
 """Command Code adapter."""
 
 class CommandCodeAdapter(BaseAgentAdapter):
@@ -1139,10 +1001,7 @@ class CommandCodeAdapter(BaseAgentAdapter):
         return None
 
 
-# ==============================================================================
-# SECTION: Anthropic Claude Code Adapter
-# Source: adapters/claude.py
-# ==============================================================================
+# --- Anthropic Claude Code Adapter (adapters/claude.py) ---
 """Anthropic Claude Code adapter."""
 
 def claude_state(fpath: str, max_bytes: int = 250000) -> Tuple[float, bool]:
@@ -1190,7 +1049,7 @@ class ClaudeAdapter(BaseAgentAdapter):
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
         if heads:
             return "claude" in heads
-        return "claude" in pane.current_command or "claude" in full_desc
+        return "claude" in pane.current_command or "claude" in full_desc or bool(pane.claude_sid)
 
     def get_status(
         self,
@@ -1253,12 +1112,6 @@ class ClaudeAdapter(BaseAgentAdapter):
         if pane.claude_sid:
             matches = glob.glob(os.path.expanduser(f"~/.claude/projects/*/{pane.claude_sid}.jsonl"))
 
-        if not matches:
-            # Fallback: find by newest jsonl in ~/.claude/projects
-            all_files = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
-            if all_files:
-                matches = [max(all_files, key=os.path.getmtime)]
-
         if matches:
             filepath = matches[0]
             lines = read_tail_lines(filepath, max_bytes=300000, full=full_history)
@@ -1280,10 +1133,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         return None
 
 
-# ==============================================================================
-# SECTION: xAI Grok Adapter
-# Source: adapters/grok.py
-# ==============================================================================
+# --- xAI Grok Adapter (adapters/grok.py) ---
 """xAI Grok adapter."""
 
 class GrokAdapter(BaseAgentAdapter):
@@ -1346,10 +1196,7 @@ class GrokAdapter(BaseAgentAdapter):
         return None
 
 
-# ==============================================================================
-# SECTION: Google Antigravity / AGY Adapter
-# Source: adapters/antigravity.py
-# ==============================================================================
+# --- Google Antigravity / AGY Adapter (adapters/antigravity.py) ---
 """Google Antigravity (AGY) / Gemini adapter."""
 
 class AntigravityAdapter(BaseAgentAdapter):
@@ -1439,10 +1286,7 @@ class AntigravityAdapter(BaseAgentAdapter):
         return None
 
 
-# ==============================================================================
-# SECTION: OpenCode Adapter
-# Source: adapters/opencode.py
-# ==============================================================================
+# --- OpenCode Adapter (adapters/opencode.py) ---
 """OpenCode adapter."""
 
 class OpenCodeAdapter(BaseAgentAdapter):
@@ -1541,10 +1385,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
         return None
 
 
-# ==============================================================================
-# SECTION: Oh My Pi (OMP) Adapter
-# Source: adapters/omp.py
-# ==============================================================================
+# --- Oh My Pi (OMP) Adapter (adapters/omp.py) ---
 """Oh My Pi (OMP) adapter."""
 
 OMP_RE = re.compile(r"(^|[\s/])omp(\s|$)")
@@ -1643,10 +1484,7 @@ class OmpAdapter(BaseAgentAdapter):
         return None
 
 
-# ==============================================================================
-# SECTION: System Monitors Adapter
-# Source: adapters/system_monitor.py
-# ==============================================================================
+# --- System Monitors Adapter (adapters/system_monitor.py) ---
 """System Monitor adapter (token-monitor, btop, htop, mactop, top)."""
 
 MONITORS = ("mactop", "token-monitor", "btop", "htop")
@@ -1668,8 +1506,12 @@ class SystemMonitorAdapter(BaseAgentAdapter):
         shared_state: Dict[str, Any]
     ) -> Tuple[str, str, int, float, str, bool]:
         cmd = pane.current_command
+        for m in ("token-monitor", "btop", "htop", "mactop"):
+            if m in full_desc or m in cmd:
+                cmd = m
+                break
         harness = "📊 " + cmd[:8].capitalize()
-        title = f"System Monitor ({cmd})"
+        title = pane.title if ("monitor" in pane.title.lower() or "btop" in pane.title.lower() or "token" in pane.title.lower()) else f"System Monitor ({cmd})"
         return harness, self.color, 3, 0.0, title, False
 
     def get_preview(
@@ -1684,10 +1526,7 @@ class SystemMonitorAdapter(BaseAgentAdapter):
         return None
 
 
-# ==============================================================================
-# SECTION: Tier 1 Fallback TUI Adapter
-# Source: adapters/fallback.py
-# ==============================================================================
+# --- Tier 1 Fallback TUI Adapter (adapters/fallback.py) ---
 """Tier 1 Universal Fallback TUI Adapter & Shell handler."""
 
 class FallbackTuiAdapter(BaseAgentAdapter):
@@ -1755,10 +1594,7 @@ class FallbackTuiAdapter(BaseAgentAdapter):
             )
 
 
-# ==============================================================================
-# SECTION: Adapter Registry
-# Source: adapters/registry.py
-# ==============================================================================
+# --- Adapter Registry (adapters/registry.py) ---
 """Adapter registry and priority dispatcher."""
 
 ADAPTERS: List[BaseAgentAdapter] = [
@@ -1786,10 +1622,7 @@ def resolve_adapter(pane: PaneContext, full_desc: str, heads: str) -> BaseAgentA
     return FallbackTuiAdapter()
 
 
-# ==============================================================================
-# SECTION: CLI Entrypoints & Subcommand Dispatcher
-# Source: cli.py
-# ==============================================================================
+# --- CLI Entrypoints & Subcommand Dispatcher (cli.py) ---
 """Command-line interface and subcommand entrypoints for tmux-agent-switcher."""
 
 def index_shared_state() -> Dict[str, Any]:
@@ -1798,36 +1631,29 @@ def index_shared_state() -> Dict[str, Any]:
         "now": time.time(),
         "host": os.uname().nodename.split(".")[0],
         "home": os.path.expanduser("~"),
-        "agy_titles": {},
-        "codex_threads": {},
-        "codex_cwd": {},
-        "oc_sessions": [],
-        "oc_db": None,
-        "claude_idx": {},
-        "cc_status": {},
+        "agy_titles": {}, "codex_threads": {}, "codex_cwd": {},
+        "oc_sessions": [], "oc_db": None, "claude_idx": {}, "cc_status": {}
     }
 
     # AGY summaries
     agy_db = os.path.expanduser("~/.gemini/antigravity-cli/conversation_summaries.db")
     if os.path.exists(agy_db):
         try:
-            conn = sqlite3.connect(f"file:{agy_db}?mode=ro", uri=True)
-            for cid, title, idle in conn.execute("SELECT conversation_id, title, not_fully_idle FROM conversation_summaries"):
-                state["agy_titles"][cid] = (title, idle)
-            conn.close()
+            with sqlite3.connect(f"file:{agy_db}?mode=ro", uri=True) as conn:
+                for cid, title, idle in conn.execute("SELECT conversation_id, title, not_fully_idle FROM conversation_summaries"):
+                    state["agy_titles"][cid] = (title, idle)
         except Exception:
             pass
 
     # Codex state
-    codex_s_db = os.path.expanduser("~/.codex/state_5.sqlite")
-    if os.path.exists(codex_s_db):
+    codex_s = os.path.expanduser("~/.codex/state_5.sqlite")
+    if os.path.exists(codex_s):
         try:
-            conn = sqlite3.connect(f"file:{codex_s_db}?mode=ro", uri=True)
-            for tid, tname, u_ms, tcwd in conn.execute("SELECT id, name, updated_at_ms, cwd FROM threads"):
-                if tname:
-                    state["codex_threads"][tname.strip()] = (tid, (u_ms or 0) / 1000.0)
-                state["codex_cwd"][tcwd] = max(state["codex_cwd"].get(tcwd, 0.0), (u_ms or 0) / 1000.0)
-            conn.close()
+            with sqlite3.connect(f"file:{codex_s}?mode=ro", uri=True) as conn:
+                for tid, name, u_ms, cwd in conn.execute("SELECT id, name, updated_at_ms, cwd FROM threads"):
+                    if name:
+                        state["codex_threads"][name.strip()] = (tid, (u_ms or 0) / 1000.0)
+                    state["codex_cwd"][cwd] = max(state["codex_cwd"].get(cwd, 0.0), (u_ms or 0) / 1000.0)
         except Exception:
             pass
 
@@ -1844,7 +1670,6 @@ def index_shared_state() -> Dict[str, Any]:
     # Claude indices
     claude_paths = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
     state["claude_idx"] = {os.path.basename(p)[:-6]: p for p in claude_paths}
-
     for f in glob.glob(os.path.expanduser("~/.claude*/sessions/*.json")):
         try:
             with open(f, "r", encoding="utf-8") as fh:
@@ -1857,42 +1682,31 @@ def index_shared_state() -> Dict[str, Any]:
 
 def cmd_list(args: argparse.Namespace) -> None:
     """Generate ANSI-styled, priority-sorted pane list for fzf."""
-    tree = ProcessTree.from_system()
+    tree = ProcessTree()
     panes = list_all_panes()
-    shared_state = index_shared_state()
-    shared_state["tree"] = tree.tree
-    shared_state["cmd_of"] = tree.cmd_of
-    shared_state["my_pid"] = tree.my_pid
-
-    now = shared_state["now"]
+    state = index_shared_state()
+    state.update({"tree": tree.tree, "cmd_of": tree.cmd_of, "my_pid": tree.my_pid})
+    now = state["now"]
     out: List[Tuple[int, float, str]] = []
 
     for pane in panes:
         desc_cmd = tree.get_descendants(pane.pid)
         heads = tree.get_agent_heads(pane.pid)
-
         adapter = resolve_adapter(pane, desc_cmd, heads)
-        harness, h_col, rank, mtime, title, running = adapter.get_status(
-            pane, desc_cmd, heads, shared_state
-        )
+        harness, h_col, rank, mtime, title, running = adapter.get_status(pane, desc_cmd, heads, state)
 
         is_current = (pane.window_active == "1" and pane.pane_active == "1" and pane.session_attached != "0")
         is_monitor = (adapter.name == "system-monitor")
-
         status = "💤 idle"
-        if running:
-            # 30-min watchdog cap: turn cut off by kill should not read running forever
-            if now - mtime < 1800:
-                status = "⚡ run"
-                rank = 1
+
+        if running and (now - mtime < 1800):
+            status, rank = "⚡ run", 1
 
         if is_monitor:
-            rank = 3
-            age_str = "LIVE"
+            rank, age_str = 3, "LIVE"
         else:
             if pane.pane_needs_input == "1" or (pane.bell_flag == "1" and pane.pane_active == "1"):
-                status = "🔔 input"
-                rank = 0
+                status, rank = "🔔 input", 0
 
             if mtime:
                 diff = max(0, int(now - mtime))
@@ -1908,24 +1722,26 @@ def cmd_list(args: argparse.Namespace) -> None:
                 age_str = " - "
 
         s_col = {
-            "🔔 input": C_RED_BOLD,
-            "⚡ run": C_GREEN_BOLD,
-            "🤖 subagent": C_CYAN_BOLD,
-            "🐚 shell": C_CYAN_BOLD
+            "🔔 input": C_RED_BOLD, "⚡ run": C_GREEN_BOLD,
+            "🤖 subagent": C_CYAN_BOLD, "🐚 shell": C_CYAN_BOLD
         }.get(status, C_DIM)
 
         mark = f"{C_GREEN_BOLD}▶{C_RESET}" if is_current else " "
+        id_w = max((len(p.pane_id) for p in panes), default=8)
+        id_w = max(id_w, 8)
+        pad_id = f"{pane.pane_id:<{id_w}}"
+        pad_h = pad_str(harness, 13)
+        pad_s = pad_str(status, 10)
         formatted = (
-            f"{pane.pane_id:<10} {mark} {h_col}{harness:<12}{C_RESET} "
-            f"{s_col}{status:<10}{C_RESET} {C_DIM}{age_str:>4}{C_RESET}  "
+            f"{pad_id} {mark} {h_col}{pad_h}{C_RESET} "
+            f"{s_col}{pad_s}{C_RESET} {C_DIM}{age_str:>4}{C_RESET}  "
             f"{C_WHITE}{title[:60]}{C_RESET}"
         )
         out.append((rank, mtime, formatted))
 
-    # Clean up SQLite connection if opened
-    if shared_state.get("oc_db"):
+    if state.get("oc_db"):
         try:
-            shared_state["oc_db"].close()
+            state["oc_db"].close()
         except Exception:
             pass
 
@@ -1935,102 +1751,87 @@ def cmd_list(args: argparse.Namespace) -> None:
 
 def cmd_preview(args: argparse.Namespace) -> None:
     """Render preview dialogue bubbles or fallback terminal buffer for target pane."""
-    pane_id = args.pane_id
-    if not pane_id:
-        sys.exit(0)
-
-    pane = get_pane_context(pane_id)
+    if not args.pane_id:
+        return
+    pane = get_pane_context(args.pane_id)
     if not pane:
-        sys.exit(0)
+        return
 
-    # Scoped process tree lookup by TTY for high performance
-    tree = ProcessTree.from_system(tty=pane.tty if pane.tty else None)
+    tree = ProcessTree(tty=pane.tty if pane.tty else None)
     desc_cmd = tree.get_descendants(pane.pid)
     desc_pids = tree.get_descendant_pids(pane.pid)
     heads = tree.get_agent_heads(pane.pid)
 
-    full_history = "full history" in os.environ.get("FZF_PREVIEW_LABEL", "")
-    preview_width = int(os.environ.get("FZF_PREVIEW_COLUMNS") or 0)
+    full = "full history" in os.environ.get("FZF_PREVIEW_LABEL", "")
+    w = int(os.environ.get("FZF_PREVIEW_COLUMNS") or 0)
 
     result: Optional[PreviewResult] = None
-    # Try resolving via adapter chain
+    matched_adapter = None
     for adapter in ADAPTERS:
         try:
             if adapter.detect(pane, desc_cmd, heads):
-                result = adapter.get_preview(
-                    pane, desc_cmd, desc_pids, full_history, preview_width
-                )
+                if not matched_adapter:
+                    matched_adapter = adapter
+                result = adapter.get_preview(pane, desc_cmd, desc_pids, full, w)
                 if result:
                     break
         except Exception:
             continue
 
     if not result:
-        result = FallbackTuiAdapter().get_preview(
-            pane, desc_cmd, desc_pids, full_history, preview_width
-        )
+        result = FallbackTuiAdapter().get_preview(pane, desc_cmd, desc_pids, full, w)
+
+    if result and matched_adapter and matched_adapter.name != "fallback":
+        disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
+        result.source_label = f"{matched_adapter.display_name} · {disp_t or pane.pane_id}"
 
     if result:
-        header = f"\033[1;36m━━━ {pane_id} · {result.source_label} ━━━\033[0m\n\n"
-        print(header + result.content)
+        print(f"\033[1;36m━━━ {args.pane_id} · {result.source_label} ━━━\033[0m\n\n{result.content}")
 
 def cmd_copy(args: argparse.Namespace) -> None:
     """Extract plain text preview and load into OSC 52 + system clipboard."""
-    pane_id = args.pane_id
-    if not pane_id:
-        sys.exit(0)
-
-    # Temporarily unset FZF_PREVIEW_COLUMNS to prevent hard-wrapping in clipboard content
+    if not args.pane_id:
+        return
     env = os.environ.copy()
     env["FZF_PREVIEW_COLUMNS"] = ""
 
     try:
         proc = subprocess.run(
-            [sys.executable, sys.argv[0], "preview", pane_id],
-            capture_output=True,
-            text=True,
-            env=env,
-            check=False
+            [sys.executable, sys.argv[0], "preview", args.pane_id],
+            capture_output=True, text=True, env=env, check=False
         )
-        raw_output = proc.stdout
+        raw = proc.stdout
     except Exception:
-        raw_output = ""
+        raw = ""
 
-    # Strip header line (━━━ ...)
-    lines = raw_output.split("\n")
-    content = "\n".join(lines[2:]) if len(lines) > 2 else raw_output
-
-    # Strip ANSI color escapes and OSC 8 hyperlinks
+    lines = raw.split("\n")
+    content = "\n".join(lines[2:]) if len(lines) > 2 else raw
     content = re.sub(r'\033\[[0-9;]*m', '', content)
     content = re.sub(r'\033\]8;;[^\033]*\033\\', '', content)
 
-    # Fallback to direct terminal capture if content is empty
     if not content.strip():
         try:
             content = subprocess.check_output(
-                ["tmux", "capture-pane", "-pJ", "-S", "-100", "-t", pane_id]
+                ["tmux", "capture-pane", "-pJ", "-S", "-100", "-t", args.pane_id]
             ).decode("utf-8", errors="ignore")
         except Exception:
             content = ""
 
-    # Load into tmux paste buffer with OSC 52 flag (-w)
+    # Load into tmux buffer with OSC 52 flag (-w)
     try:
         subprocess.run(["tmux", "load-buffer", "-w", "-"], input=content.encode("utf-8"), check=False)
     except Exception:
         pass
 
-    # Copy to native system clipboard
-    copied = False
-    for clip_tool in [["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"]]:
+    for tool in [["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"]]:
         try:
-            subprocess.run(clip_tool, input=content.encode("utf-8"), check=True, stderr=subprocess.DEVNULL)
-            copied = True
+            subprocess.run(tool, input=content.encode("utf-8"), check=True, stderr=subprocess.DEVNULL)
             break
         except Exception:
             continue
 
     try:
-        subprocess.run(["tmux", "display-message", f"📋 Copied {pane_id} to system clipboard"], check=False)
+        subprocess.run(["tmux", "display-message", f"📋 Copied {args.pane_id} to system clipboard"], check=False)
     except Exception:
         pass
 
@@ -2039,7 +1840,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     self_path = os.path.abspath(sys.argv[0])
     pw = getattr(args, "preview_width", "58%") or "58%"
 
-    popup_shell_cmd = (
+    fzf_cmd = (
         f"{self_path} list | fzf --ansi --reverse "
         f"--prompt='🔎 Agent Switcher > ' "
         f"--header='Enter: Jump | Tab: Preview | Ctrl-o: Full History | Shift-↑/↓ / Ctrl-u/d: Scroll | Ctrl-y: Copy (OSC 52) | Ctrl-x: Kill' "
@@ -2059,19 +1860,19 @@ def cmd_run(args: argparse.Namespace) -> None:
     )
 
     try:
-        subprocess.run(["sh", "-c", popup_shell_cmd])
+        subprocess.run(["sh", "-c", fzf_cmd])
     except Exception:
         pass
 
 def cmd_popup(args: argparse.Namespace) -> None:
     """Directly trigger tmux popup window."""
     self_path = os.path.abspath(sys.argv[0])
-    width = getattr(args, "width", "88%") or "88%"
-    height = getattr(args, "height", "82%") or "82%"
+    w = getattr(args, "width", "88%") or "88%"
+    h = getattr(args, "height", "82%") or "82%"
     pw = getattr(args, "preview_width", "58%") or "58%"
 
     subprocess.run([
-        "tmux", "display-popup", "-w", width, "-h", height, "-E",
+        "tmux", "display-popup", "-w", w, "-h", h, "-E",
         f"{self_path} run --preview-width '{pw}'"
     ])
 
@@ -2080,35 +1881,30 @@ def main() -> None:
         prog="tmux-agent-switcher",
         description="Unified multiplexing & dialogue preview center for AI coding agents in Tmux."
     )
-    subparsers = parser.add_subparsers(dest="command")
+    sub = parser.add_subparsers(dest="command")
 
-    p_list = subparsers.add_parser("list", help="List and rank all active agents across panes")
-    p_preview = subparsers.add_parser("preview", help="Render formatted preview for a pane")
-    p_preview.add_argument("pane_id", help="Target tmux pane identifier (e.g. %%43 or session:1.2)")
+    sub.add_parser("list", help="List and rank all active agents across panes")
+    p_prev = sub.add_parser("preview", help="Render formatted preview for a pane")
+    p_prev.add_argument("pane_id", help="Target tmux pane identifier (e.g. %%43)")
 
-    p_copy = subparsers.add_parser("copy", help="Copy unwrapped dialogue to clipboard via OSC 52")
+    p_copy = sub.add_parser("copy", help="Copy unwrapped dialogue to clipboard via OSC 52")
     p_copy.add_argument("pane_id", help="Target tmux pane identifier (e.g. %%43)")
 
-    p_run = subparsers.add_parser("run", help="Run interactive fzf switcher pipeline")
+    p_run = sub.add_parser("run", help="Run interactive fzf switcher pipeline")
     p_run.add_argument("--preview-width", default="58%", help="Preview panel width (default: 58%%)")
 
-    p_popup = subparsers.add_parser("popup", help="Directly trigger tmux popup window")
-    p_popup.add_argument("--width", default="88%", help="Popup width (default: 88%%)")
-    p_popup.add_argument("--height", default="82%", help="Popup height (default: 82%%)")
-    p_popup.add_argument("--preview-width", default="58%", help="Preview panel width (default: 58%%)")
+    p_pop = sub.add_parser("popup", help="Directly trigger tmux popup window")
+    p_pop.add_argument("--width", default="88%", help="Popup width (default: 88%%)")
+    p_pop.add_argument("--height", default="82%", help="Popup height (default: 82%%)")
+    p_pop.add_argument("--preview-width", default="58%", help="Preview panel width (default: 58%%)")
 
     args = parser.parse_args()
-
-    if args.command == "list":
-        cmd_list(args)
-    elif args.command == "preview":
-        cmd_preview(args)
-    elif args.command == "copy":
-        cmd_copy(args)
-    elif args.command == "run":
-        cmd_run(args)
-    elif args.command == "popup":
-        cmd_popup(args)
+    dispatch = {
+        "list": cmd_list, "preview": cmd_preview, "copy": cmd_copy,
+        "run": cmd_run, "popup": cmd_popup
+    }
+    if args.command in dispatch:
+        dispatch[args.command](args)
     else:
         parser.print_help()
 

@@ -59,7 +59,7 @@ class ClaudeAdapter(BaseAgentAdapter):
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
         if heads:
             return "claude" in heads
-        return "claude" in pane.current_command or "claude" in full_desc
+        return "claude" in pane.current_command or "claude" in full_desc or bool(pane.claude_sid)
 
     def get_status(
         self,
@@ -121,12 +121,6 @@ class ClaudeAdapter(BaseAgentAdapter):
         matches = []
         if pane.claude_sid:
             matches = glob.glob(os.path.expanduser(f"~/.claude/projects/*/{pane.claude_sid}.jsonl"))
-
-        if not matches:
-            # Fallback: find by newest jsonl in ~/.claude/projects
-            all_files = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
-            if all_files:
-                matches = [max(all_files, key=os.path.getmtime)]
 
         if matches:
             filepath = matches[0]

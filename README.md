@@ -10,15 +10,13 @@
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-black.svg?style=flat-square)](https://github.com/xzy9565/tmux-agent-switcher)
 [![Tmux: 3.2+](https://img.shields.io/badge/Tmux-3.2+-orange.svg?style=flat-square)](https://github.com/tmux/tmux)
 
-[Features](#-key-features) • [Quick Start](#-quick-start) • [Interactive Controls](#-interactive-controls) • [Supported Agents](#-supported-agents--adapters) • [Architecture](#-architecture) • [Philosophy & Disclaimer](#-philosophy--disclaimer)
+[Features](#key-features) • [Quick Start](#quick-start) • [Interactive Controls](#interactive-controls) • [Supported Agents](#supported-agents--adapters) • [Architecture](#architecture) • [Philosophy & Disclaimer](#philosophy--disclaimer)
 
-</div>
-
----
-
-<div align="center">
-
-![Tmux Agent Switcher Live Demo](./assets/demo.gif)
+<p align="center">
+  <img src="./assets/demo.gif" alt="Tmux AI Agent Switcher Demo" width="920"/>
+  <br/>
+  <em>💡 <b>Walkthrough:</b> <code>Prefix + Space</code> popup • <code>Ctrl-D/U</code> scroll preview • <code>Tab</code> full-width titles • <code>Ctrl-X</code> kill pane • <code>Ctrl-Y</code> OSC 52 copy • fuzzy search • <code>Enter</code> 1-click jump.</em>
+</p>
 
 </div>
 
@@ -26,7 +24,7 @@
 
 ## 💡 Why Tmux Agent Switcher?
 
-Modern software engineering workflows increasingly deploy autonomous coding agents running in parallel across multiple Tmux panes and windows: **Claude Code, Google Antigravity (AGY), OpenAI Codex, Cursor CLI, OpenCode, and xAI Grok**, alongside telemetry dashboards like **Token Monitor and btop**.
+Modern software engineering workflows increasingly deploy autonomous coding agents running in parallel across multiple Tmux panes and windows: **Claude Code, Google Antigravity (AGY), OpenAI Codex, Cursor CLI, OpenCode, and xAI Grok**, alongside telemetry dashboards like **[Token Monitor](https://github.com/xzy9565/token-monitor) and btop**.
 
 This creates the **Blind Multiplexing Problem**:
 - **Opaque Pane Titles**: Native Tmux menus (`choose-tree`, window listings) only display bare shell commands (`zsh`), machine hostnames, or truncated static titles.
@@ -44,7 +42,7 @@ Instead of arbitrary window numbers, panes are dynamically ranked by urgency:
 - **`🔔 input` (Rank 0)**: Any agent waiting on tool permissions, approval prompts, or terminal bells floats immediately to the top of the list.
 - **`⚡ run` / `🤖 subagent` (Rank 1)**: Actively computing turns and background processes are highlighted in vibrant green/cyan.
 - **`💤 idle` (Rank 2)**: Sorted chronologically by the exact timestamp of the last human prompt or assistant reply (`5s`, `12m`, `2h`, `3d`), not synthetic file touch times.
-- **`LIVE` (Rank 3)**: Persistent hardware and token monitors (`token-monitor`, `btop`, `mactop`).
+- **`LIVE` (Rank 3)**: Persistent hardware and token monitors ([`token-monitor`](https://github.com/xzy9565/token-monitor), `btop`, `mactop`).
 - **`💻 Shell` (Rank 4)**: Plain idle shell sessions displaying exact working directories (`~/...`).
 
 ### 💬 2. Direct-from-Store Semantic Dialogue Preview
@@ -70,6 +68,11 @@ Zero synthetic scraping or terminal screen tearing:
 ---
 
 ## 🚀 Quick Start
+
+### 📋 Prerequisites
+- **Tmux >= 3.2** (required for `display-popup`)
+- **[fzf](https://github.com/junegunn/fzf)** (required for interactive fuzzy switching dashboard)
+- **Python >= 3.9** (standard library only — zero pip dependencies)
 
 ### 🍺 1. Tmux Plugin Manager (TPM, Recommended)
 
@@ -129,7 +132,7 @@ bind Space display-popup -w 88% -h 82% -E "tmux-agent-switcher run"
 | Key | Context | Action |
 |:---:|:---:|:---|
 | `Enter` | Selection | Jump directly to selected target pane and session |
-| `Tab` | Popup | Toggle dialogue preview window visibility |
+| `Tab` | Popup | Toggle preview panel (collapses preview to expand pane titles to 100% full width) |
 | `Ctrl-O` | Preview | Toggle between **Recent 4 Turns** and **Full Session History** |
 | `Shift-↑` / `Shift-↓` | Preview | Scroll preview smoothly line-by-line |
 | `Ctrl-U` / `Ctrl-D` | Preview | Half-page preview scroll up / down |
@@ -154,7 +157,7 @@ bind Space display-popup -w 88% -h 82% -E "tmux-agent-switcher run"
 | **xAI Grok** | `grok` | Process tree (`grok`) | `~/.grok/active_sessions.json` + `chat_history.jsonl` |
 | **Command Code** | `command-code` | Process tree / `@command-code-session-id` | `~/.commandcode/projects/*/*.jsonl` |
 | **Oh My Pi (OMP)** | `omp` | Process tree (`omp`) / `@omp-session-id` | `~/.omp/agent/sessions/*/*.jsonl` |
-| **System Monitors** | `system-monitor` | `token-monitor`, `btop`, `htop`, `mactop`, `top` | Fallback TUI de-noiser + real-time buffer capture |
+| **System Monitors** | `system-monitor` | [`token-monitor`](https://github.com/xzy9565/token-monitor), `btop`, `htop`, `mactop`, `top` | Fallback TUI de-noiser + real-time buffer capture |
 | **Tier 1 Universal Fallback** | `fallback` | Standard shells (`zsh`, `bash`, `fish`) | Tmux screen capture + semantic ANSI de-noiser |
 | **OSC 7501 Protocol** | `osc-7501` | Semantic agent terminal escapes | Forward-looking protocol bridge |
 

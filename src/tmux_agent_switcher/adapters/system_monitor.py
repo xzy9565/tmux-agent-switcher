@@ -25,8 +25,12 @@ class SystemMonitorAdapter(BaseAgentAdapter):
         shared_state: Dict[str, Any]
     ) -> Tuple[str, str, int, float, str, bool]:
         cmd = pane.current_command
+        for m in ("token-monitor", "btop", "htop", "mactop"):
+            if m in full_desc or m in cmd:
+                cmd = m
+                break
         harness = "📊 " + cmd[:8].capitalize()
-        title = f"System Monitor ({cmd})"
+        title = pane.title if ("monitor" in pane.title.lower() or "btop" in pane.title.lower() or "token" in pane.title.lower()) else f"System Monitor ({cmd})"
         return harness, self.color, 3, 0.0, title, False
 
     def get_preview(

@@ -2,6 +2,7 @@
 
 import os
 import re
+import unicodedata
 
 # Basic ANSI Controls
 C_RESET = "\033[0m"
@@ -52,13 +53,16 @@ SHELLS = ("zsh", "-zsh", "bash", "sh", "fish")
 
 
 def char_width(c: str) -> int:
-    """Return monospace display width for a single character (handles CJK/emojis)."""
+    """Return monospace display width for a single character (handles CJK/emojis/symbols)."""
+    if unicodedata.east_asian_width(c) in ("W", "F"):
+        return 2
     cp = ord(c)
-    if (0x1100 <= cp <= 0x115F or 0x2E80 <= cp <= 0xA4CF or
+    if (0x1F300 <= cp <= 0x1FAFF or 0x2600 <= cp <= 0x27BF or
+        0x1100 <= cp <= 0x115F or 0x2E80 <= cp <= 0xA4CF or
         0xAC00 <= cp <= 0xD7A3 or 0xF900 <= cp <= 0xFAFF or
         0xFE10 <= cp <= 0xFE19 or 0xFE30 <= cp <= 0xFE6F or
         0xFF00 <= cp <= 0xFF60 or 0xFFE0 <= cp <= 0xFFE6 or
-        0x1F300 <= cp <= 0x1F9FF or 0x20000 <= cp <= 0x2FA1F):
+        0x20000 <= cp <= 0x2FA1F):
         return 2
     return 1
 

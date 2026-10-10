@@ -9,7 +9,7 @@ from .config import (
     C_USER_BG, C_USER_TXT, C_ACTIVE_BG, C_ACTIVE_TXT, C_BAR_ACTIVE, C_BAR_USER,
     SHELLS, char_width, str_display_width, pad_str
 )
-from .types import PaneContext, AgentStatusInfo, TurnMessage, PreviewResult
+from .types import PaneContext, PreviewResult
 from .tmux import ProcessTree, list_all_panes, get_pane_context
 
 __all__ = [
@@ -20,6 +20,6 @@ __all__ = [
     "C_BORDER", "C_DIVIDER", "C_MUTED", "C_LINK", "C_TD",
     "C_USER_BG", "C_USER_TXT", "C_ACTIVE_BG", "C_ACTIVE_TXT", "C_BAR_ACTIVE", "C_BAR_USER",
     "SHELLS", "char_width", "str_display_width", "pad_str",
-    "PaneContext", "AgentStatusInfo", "TurnMessage", "PreviewResult",
+    "PaneContext", "PreviewResult",
     "ProcessTree", "list_all_panes", "get_pane_context"
 ]

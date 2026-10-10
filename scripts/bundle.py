@@ -39,21 +39,17 @@ MODULES_IN_ORDER = [
 
 def clean_source(content: str) -> str:
     """Remove relative package imports and duplicate standard library imports."""
-    # Remove multi-line from .xxx import (...) blocks
     cleaned = re.sub(r'from \.[a-zA-Z0-9_\. ]+ import \([^)]+\)', '', content, flags=re.MULTILINE)
-    # Remove single-line from .xxx import ...
     cleaned = re.sub(r'from \.[a-zA-Z0-9_\. ]+ import [^\n]+', '', cleaned)
     
-    # Remove duplicate standard library imports
     std_imports = [
-        r'import (?:argparse|collections|datetime|glob|json|os|re|shutil|sqlite3|subprocess|sys|textwrap|time|urllib\.parse)[^\n]*',
+        r'import (?:argparse|collections|datetime|glob|json|os|re|shutil|sqlite3|subprocess|sys|textwrap|time|unicodedata|urllib\.parse)[^\n]*',
         r'from dataclasses import [^\n]+',
         r'from typing import [^\n]+',
     ]
     for pat in std_imports:
         cleaned = re.sub(rf'^{pat}\n?', '', cleaned, flags=re.MULTILINE)
 
-    # Clean consecutive blank lines
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
     return cleaned.strip()
 
@@ -84,6 +80,7 @@ import subprocess
 import sys
 import textwrap
 import time
+import unicodedata
 import urllib.parse
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Any, Set
@@ -97,12 +94,10 @@ from typing import Dict, List, Optional, Tuple, Any, Set
             code = f.read()
 
         cleaned = clean_source(code)
-        banner = f"\n# {'=' * 78}\n# SECTION: {section_name}\n# Source: {rel_path}\n# {'=' * 78}\n"
+        banner = f"\n# --- {section_name} ({rel_path}) ---\n"
         parts.append(banner + cleaned)
 
     full_script = "\n\n".join(parts) + "\n"
-
-    # Verify script parses via ast before writing
     ast.parse(full_script)
 
     with open(TARGET_BIN, "w", encoding="utf-8") as f:
