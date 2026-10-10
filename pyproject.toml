@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tmux-agent-switcher"
+version = "0.1.0"
+description = "Lightning-fast tmux AI agent switcher & semantic dialogue preview center"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "tmux-agent-switcher contributors" }
+]
+keywords = ["tmux", "fzf", "ai-agents", "claude-code", "codex", "gemini", "antigravity", "cursor", "tui"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Terminals",
+    "Topic :: Utilities",
+]
+dependencies = []
+
+[project.scripts]
+tmux-agent-switcher = "tmux_agent_switcher.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
