@@ -279,10 +279,22 @@ Register your adapter in `src/tmux_agent_switcher/adapters/registry.py`, run `py
 
 - **Community Heuristics & Best-Effort**: This tool inspects local agent session stores, command lines, and SQLite logs via community-driven reverse heuristics. Because agent providers periodically update their private disk schemas, adapters are built defensively to fall back gracefully without interrupting your workflow.
 - **Read-Only Non-Invasive Forensics**: All SQLite connections are opened using `mode=ro` (read-only mode), and logs are inspected via binary tail reading. The tool never modifies agent session files, never injects commands, and never sends network telemetry.
-- **Protocol Standardization**: In the long term, we advocate for standard terminal multiplexer protocols like **OSC 7501** for native agent lifecycle broadcasting.
+- **Protocol Standardization**: In the long term, we advocate for standard terminal multiplexer protocols like [OSC 7501 (Program Status Protocol)](https://mitchellh.com/writing/program-status-osc7501) for native agent lifecycle broadcasting.
+
+---
+
+## 🗺️ Roadmap: The Path to OSC 7501 Standardization
+
+While `tmux-agent-switcher` provides robust reverse-engineered heuristic adapters today, the ultimate future of terminal AI agents lies in native multiplexer protocol standards like [OSC 7501 (Program Status Protocol)](https://mitchellh.com/writing/program-status-osc7501):
+
+- [x] **Phase 1: Universal Heuristic Adapters** — Zero-dependency, non-invasive SQLite & JSONL tail forensics across 10+ major coding agents.
+- [x] **Phase 2: Protocol Interface Stub** — Embedded [`Osc7501Adapter`](./src/tmux_agent_switcher/adapters/osc_7501.py) ready for [OSC 7501 escape sequences](https://mitchellh.com/writing/program-status-osc7501).
+- [ ] **Phase 3: Hybrid Detection Engine** — Prefer zero-overhead [OSC 7501](https://mitchellh.com/writing/program-status-osc7501) broadcasts when emitted by supported runtimes (e.g., Claude Code, Ghostty), falling back gracefully to disk heuristics for legacy CLI agents.
+- [ ] **Phase 4: Ecosystem Advocacy** — Encourage terminal AI agent providers to natively broadcast lifecycle state machines (`\033]7501;state=busy;...\033\`) directly over PTY.
 
 ---
 
 ## 📄 License
 
 This project is licensed under the [MIT License](./LICENSE).
+

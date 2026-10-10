@@ -1,5 +1,6 @@
 """
-OSC 7501 Semantic Agent Protocol Adapter (Forward-Looking Stub).
+OSC 7501 Program Status Protocol Adapter (Forward-Looking Stub).
+Specification: https://mitchellh.com/writing/program-status-osc7501
 
 OSC 7501 is the emerging terminal multiplexer protocol for autonomous AI agents
 to stream structured state machines directly over terminal escape sequences:
