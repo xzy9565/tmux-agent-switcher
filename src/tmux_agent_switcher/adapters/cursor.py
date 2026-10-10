@@ -29,10 +29,41 @@ class CursorAdapter(BaseAgentAdapter):
         heads: str,
         shared_state: Dict[str, Any]
     ) -> Tuple[str, str, int, float, str, bool]:
-        m_files = glob.glob(os.path.expanduser("~/.cursor/projects/**/worker.log"), recursive=True)
-        mtime = max((os.path.getmtime(f) for f in m_files), default=0.0)
-        disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
-        return self.display_name, self.color, 2, mtime, disp_t, False
+        t_files = glob.glob(os.path.expanduser("~/.cursor/projects/*/agent-transcripts/*/*.jsonl"))
+        w_files = glob.glob(os.path.expanduser("~/.cursor/projects/**/worker.log"), recursive=True)
+        mtime = max((os.path.getmtime(f) for f in (t_files + w_files)), default=0.0)
+
+        raw_title = pane.title or ""
+        disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", raw_title).strip()
+
+        # Detect Cursor lifecycle state from OSC terminal title
+        # Cursor CLI broadcasts: "[Chat] - ⏳ Working ...", "[Chat] - 🧭 Planning",
+        #                        "[Chat] - ❓ Waiting for you", "[Chat] - ✅ Ready"
+        is_running = bool(re.search(
+            r"(?:Working|Planning|Running shell|Moving to cloud|Loading conversation|Reviewing changes|Reconnecting)",
+            raw_title,
+            re.IGNORECASE
+        ))
+        is_input = bool(re.search(r"(?:Waiting for you|Waiting for confirmation)", raw_title, re.IGNORECASE))
+
+        # Strip trailing status indicator from display title
+        clean_t = re.sub(
+            r"\s*-\s*(?:[⏳🧭⌨️📝🔄📋❓🔐✅📤📂]\s*)?(?:Working.*|Planning|Running shell.*|Reviewing.*|Reconnecting|Queued|Waiting for.*|Ready|Moving to cloud|Loading conversation)\s*$",
+            "",
+            disp_t
+        ).strip()
+        disp_t = clean_t if clean_t else disp_t
+
+        rank = 2
+        running = False
+        if is_running:
+            rank = 1
+            running = True
+            mtime = max(mtime, time.time())
+        elif is_input:
+            rank = 0
+
+        return self.display_name, self.color, rank, mtime, disp_t, running
 
     def get_preview(
         self,
@@ -43,6 +74,12 @@ class CursorAdapter(BaseAgentAdapter):
         preview_width: int
     ) -> Optional[PreviewResult]:
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
+        clean_t = re.sub(
+            r"\s*-\s*(?:[⏳🧭⌨️📝🔄📋❓🔐✅📤📂]\s*)?(?:Working.*|Planning|Running shell.*|Reviewing.*|Reconnecting|Queued|Waiting for.*|Ready|Moving to cloud|Loading conversation)\s*$",
+            "",
+            disp_t
+        ).strip()
+        disp_t = clean_t if clean_t else disp_t
         try:
             pane_pids = {str(pane.pid), *desc_pids}
             cursor_pids = []

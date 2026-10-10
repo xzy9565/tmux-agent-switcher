@@ -101,7 +101,7 @@ def cmd_list(args: argparse.Namespace) -> None:
         if is_monitor:
             rank, age_str = 3, "LIVE"
         else:
-            if pane.pane_needs_input == "1" or (pane.bell_flag == "1" and pane.pane_active == "1"):
+            if rank == 0 or pane.pane_needs_input == "1" or (pane.bell_flag == "1" and pane.pane_active == "1"):
                 status, rank = "🔔 input", 0
 
             if mtime:
@@ -180,6 +180,12 @@ def cmd_preview(args: argparse.Namespace) -> None:
 
     if result and matched_adapter and matched_adapter.name != "fallback":
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
+        clean_t = re.sub(
+            r"\s*-\s*(?:[⏳🧭⌨️📝🔄📋❓🔐✅📤📂]\s*)?(?:Working.*|Planning|Running shell.*|Reviewing.*|Reconnecting|Queued|Waiting for.*|Ready|Moving to cloud|Loading conversation)\s*$",
+            "",
+            disp_t
+        ).strip()
+        disp_t = clean_t if clean_t else disp_t
         result.source_label = f"{matched_adapter.display_name} · {disp_t or pane.pane_id}"
 
     if result:
