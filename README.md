@@ -71,57 +71,55 @@ Zero synthetic scraping or terminal screen tearing:
 
 ## 🚀 Quick Start
 
-### 1. Installation
+### 🍺 1. Tmux Plugin Manager (TPM, Recommended)
 
-#### Option A: Standalone Single-File Executable (Zero Install)
-Download the standalone executable directly into your `PATH`:
+Add this single line to your `~/.tmux.conf`:
+
+```tmux
+set -g @plugin 'xzy9565/tmux-agent-switcher'
+```
+
+Press `Prefix + I` to fetch and activate the plugin. **Zero additional configuration needed!**
+
+#### Optional Configuration
+You can customize the keybinding and popup dimensions by adding any of the following to `~/.tmux.conf`:
+
+```tmux
+# Custom trigger key (default: Space -> Prefix + Space)
+set -g @agent-switcher-bind 'Space'
+
+# Popup dimensions (default: 88% width x 82% height)
+set -g @agent-switcher-width '88%'
+set -g @agent-switcher-height '82%'
+
+# Preview panel split ratio (default: 58%)
+set -g @agent-switcher-preview-width '58%'
+```
+
+---
+
+### ⚡ 2. Manual Installation (Without TPM)
+
+#### Option A: Run Plugin Entrypoint Directly
+Clone the repository and load the plugin entrypoint in `~/.tmux.conf`:
+
+```tmux
+run-shell ~/path/to/tmux-agent-switcher/tmux-agent-switcher.tmux
+```
+
+#### Option B: Standalone CLI + One-Line Tmux Binding
+Download the standalone executable into your `PATH`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/xzy9565/tmux-agent-switcher/main/bin/tmux-agent-switcher -o ~/.local/bin/tmux-agent-switcher
 chmod +x ~/.local/bin/tmux-agent-switcher
 ```
 
-#### Option B: Clone & Symlink
-```bash
-git clone https://github.com/xzy9565/tmux-agent-switcher.git ~/Downloads/git/tmux-agent-switcher
-ln -sf ~/Downloads/git/tmux-agent-switcher/bin/tmux-agent-switcher ~/.local/bin/tmux-agent-switcher
-```
-
-#### Option C: Python Package
-```bash
-pip install --user .
-```
-
----
-
-### 2. Tmux Configuration
-
-Add the following binding to your `~/.tmux.conf` or `~/.tmux.conf.local`:
+And add this one-line binding to `~/.tmux.conf`:
 
 ```tmux
-# Rebind Prefix + Space to launch the Agent Switcher floating popup
 unbind Space
-bind Space display-popup -w 88% -h 82% -E "tmux-agent-switcher list | fzf --ansi --reverse \
-  --prompt='🔎 Agent Switcher > ' \
-  --header='Enter: Jump | Tab: Preview | Ctrl-o: Full History | Shift-↑/↓ / Ctrl-u/d: Scroll | Ctrl-y: Copy (OSC 52) | Ctrl-x: Kill' \
-  --preview-window 'right,58%,border-left,wrap,follow' \
-  --preview 'tmux-agent-switcher preview {1}' \
-  --bind 'tab:toggle-preview' \
-  --bind 'ctrl-o:transform-preview-label([ -n \"\$FZF_PREVIEW_LABEL\" ] || echo \" full history \")+refresh-preview' \
-  --bind 'focus:change-preview-label()' \
-  --bind 'ctrl-d:preview-half-page-down,ctrl-u:preview-half-page-up' \
-  --bind 'shift-up:preview-up,shift-down:preview-down' \
-  --bind 'ctrl-b:preview-page-up,ctrl-f:preview-page-down' \
-  --bind 'alt-up:preview-top,alt-down:preview-bottom' \
-  --bind 'ctrl-y:execute-silent(tmux-agent-switcher copy {1})' \
-  --bind 'alt-y:execute-silent(echo -n {1} | tmux load-buffer -w -; tmux display-message \"📋 Copied {1}\")' \
-  --bind 'ctrl-x:execute(tmux kill-pane -t {1})+reload(tmux-agent-switcher list)' \
-  | awk '{print \$1}' | xargs -r tmux switch-client -t"
-```
-
-Reload Tmux:
-```bash
-tmux source ~/.tmux.conf
+bind Space display-popup -w 88% -h 82% -E "tmux-agent-switcher run"
 ```
 
 ---

@@ -2034,15 +2034,16 @@ def cmd_copy(args: argparse.Namespace) -> None:
     except Exception:
         pass
 
-def cmd_popup(args: argparse.Namespace) -> None:
-    """Launch complete fzf floating popup for tmux."""
-    # Find self path
+def cmd_run(args: argparse.Namespace) -> None:
+    """Run interactive fzf switcher inside the popup."""
     self_path = os.path.abspath(sys.argv[0])
+    pw = getattr(args, "preview_width", "58%") or "58%"
+
     popup_shell_cmd = (
         f"{self_path} list | fzf --ansi --reverse "
         f"--prompt='🔎 Agent Switcher > ' "
         f"--header='Enter: Jump | Tab: Preview | Ctrl-o: Full History | Shift-↑/↓ / Ctrl-u/d: Scroll | Ctrl-y: Copy (OSC 52) | Ctrl-x: Kill' "
-        f"--preview-window 'right,58%,border-left,wrap,follow' "
+        f"--preview-window 'right,{pw},border-left,wrap,follow' "
         f"--preview '{self_path} preview {{1}}' "
         f"--bind 'tab:toggle-preview' "
         f"--bind 'ctrl-o:transform-preview-label([ -n \"$FZF_PREVIEW_LABEL\" ] || echo \" full history \")+refresh-preview' "
@@ -2057,8 +2058,21 @@ def cmd_popup(args: argparse.Namespace) -> None:
         f"| awk '{{print $1}}' | xargs -r tmux switch-client -t"
     )
 
+    try:
+        subprocess.run(["sh", "-c", popup_shell_cmd])
+    except Exception:
+        pass
+
+def cmd_popup(args: argparse.Namespace) -> None:
+    """Directly trigger tmux popup window."""
+    self_path = os.path.abspath(sys.argv[0])
+    width = getattr(args, "width", "88%") or "88%"
+    height = getattr(args, "height", "82%") or "82%"
+    pw = getattr(args, "preview_width", "58%") or "58%"
+
     subprocess.run([
-        "tmux", "display-popup", "-w", "88%", "-h", "82%", "-E", popup_shell_cmd
+        "tmux", "display-popup", "-w", width, "-h", height, "-E",
+        f"{self_path} run --preview-width '{pw}'"
     ])
 
 def main() -> None:
@@ -2075,7 +2089,13 @@ def main() -> None:
     p_copy = subparsers.add_parser("copy", help="Copy unwrapped dialogue to clipboard via OSC 52")
     p_copy.add_argument("pane_id", help="Target tmux pane identifier (e.g. %%43)")
 
+    p_run = subparsers.add_parser("run", help="Run interactive fzf switcher pipeline")
+    p_run.add_argument("--preview-width", default="58%", help="Preview panel width (default: 58%%)")
+
     p_popup = subparsers.add_parser("popup", help="Directly trigger tmux popup window")
+    p_popup.add_argument("--width", default="88%", help="Popup width (default: 88%%)")
+    p_popup.add_argument("--height", default="82%", help="Popup height (default: 82%%)")
+    p_popup.add_argument("--preview-width", default="58%", help="Preview panel width (default: 58%%)")
 
     args = parser.parse_args()
 
@@ -2085,6 +2105,8 @@ def main() -> None:
         cmd_preview(args)
     elif args.command == "copy":
         cmd_copy(args)
+    elif args.command == "run":
+        cmd_run(args)
     elif args.command == "popup":
         cmd_popup(args)
     else:
