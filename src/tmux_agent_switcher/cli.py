@@ -108,8 +108,16 @@ def cmd_list(args: argparse.Namespace) -> None:
         if is_monitor:
             rank, age_str = 3, "LIVE"
         else:
-            if rank == 0 or pane.pane_needs_input == "1" or (pane.bell_flag == "1" and pane.pane_active == "1"):
+            if not running and (rank == 0 or pane.pane_needs_input == "1" or (pane.bell_flag == "1" and pane.pane_active == "1")):
                 status, rank = "🔔 input", 0
+
+            if running and pane.pane_needs_input == "1":
+                try:
+                    subprocess.run(["tmux", "set", "-pu", "-t", pane.pane_id, "@pane-needs-input"], capture_output=True)
+                    subprocess.run(["tmux", "set", "-pu", "-t", pane.pane_id, "pane-border-style"], capture_output=True)
+                    subprocess.run(["tmux", "set", "-pu", "-t", pane.pane_id, "pane-active-border-style"], capture_output=True)
+                except Exception:
+                    pass
 
             if mtime:
                 diff = max(0, int(now - mtime))

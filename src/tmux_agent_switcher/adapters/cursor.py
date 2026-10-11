@@ -55,9 +55,9 @@ class CursorAdapter(BaseAgentAdapter):
         ))
         is_input = bool(re.search(r"(?:Waiting for you|Waiting for confirmation)", raw_title, re.IGNORECASE))
 
-        # If not running and not flagged by title, inspect terminal buffer & transcripts
-        # to catch interactive choice questions (AskQuestion) and permission/approval prompts
-        if not is_running and not is_input:
+        # If not already flagged running by title, inspect terminal buffer & transcripts
+        # to catch active execution (Thinking / ctrl+c to stop) or interactive choice questions
+        if not is_running:
             screen = ""
             try:
                 screen = subprocess.run(
@@ -70,41 +70,51 @@ class CursorAdapter(BaseAgentAdapter):
                 pass
 
             if screen:
-                # 1. Interactive choice / question box (Ink / React CLI UI)
-                # Matches navigation footer: "Space select · Enter next/submit · Esc to skip" or "Enter select · Esc skip"
-                question_ui = bool(re.search(
-                    r"(?:Space select|Enter next/submit|Esc to skip|Enter select · Esc skip)",
+                # 0. Active execution / thinking state probe on screen (overrides delayed OSC title)
+                running_on_screen = bool(re.search(
+                    r"(?:(?:[⠀-⣿⠋-]|\b)\s*Thinking\b|ctrl\+c\s+to\s+stop|Esc\s+to\s+cancel|\bGenerating\b|\bExecuting\s+command\b)",
                     screen,
                     re.IGNORECASE
                 ))
-                question_body = bool(
-                    re.search(r"Question \d+ of \d+", screen, re.IGNORECASE) and
-                    re.search(r"›\s*\[[ x]\]", screen)
-                )
-                # 2. Tool / command execution approval prompt
-                approval_prompt = bool(re.search(
-                    r"(?:Allow this command|Do you want to run|Allow once|Always allow|Allow \[y/n\]|Run command\?|Approve execution)",
-                    screen,
-                    re.IGNORECASE
-                ))
+                if running_on_screen:
+                    is_running = True
+                    is_input = False
+                elif not is_input:
+                    # 1. Interactive choice / question box (Ink / React CLI UI)
+                    # Matches navigation footer: "Space select · Enter next/submit · Esc to skip" or "Enter select · Esc skip"
+                    question_ui = bool(re.search(
+                        r"(?:Space select|Enter next/submit|Esc to skip|Enter select · Esc skip)",
+                        screen,
+                        re.IGNORECASE
+                    ))
+                    question_body = bool(
+                        re.search(r"Question \d+ of \d+", screen, re.IGNORECASE) and
+                        re.search(r"›\s*\[[ x]\]", screen)
+                    )
+                    # 2. Tool / command execution approval prompt
+                    approval_prompt = bool(re.search(
+                        r"(?:Allow this command|Do you want to run|Allow once|Always allow|Allow \[y/n\]|Run command\?|Approve execution)",
+                        screen,
+                        re.IGNORECASE
+                    ))
 
-                if question_ui or question_body or approval_prompt:
-                    is_input = True
-                else:
-                    # 3. Check active transcript if short ID found on screen or via project
-                    target_transcripts = proj_transcripts
-                    if not target_transcripts:
-                        short_ids = set(re.findall(r"(?:·|›)\s*([0-9a-f]{8})\s*(?:·|›)", screen))
-                        if short_ids:
-                            target_transcripts = [tf for tf in t_files if os.path.basename(tf)[:8] in short_ids]
+                    if question_ui or question_body or approval_prompt:
+                        is_input = True
+                    else:
+                        # 3. Check active transcript if short ID found on screen or via project
+                        target_transcripts = proj_transcripts
+                        if not target_transcripts:
+                            short_ids = set(re.findall(r"(?:·|›)\s*([0-9a-f]{8})\s*(?:·|›)", screen))
+                            if short_ids:
+                                target_transcripts = [tf for tf in t_files if os.path.basename(tf)[:8] in short_ids]
 
-                    if target_transcripts:
-                        latest_tf = max(target_transcripts, key=os.path.getmtime)
-                        last_lines = read_tail_lines(latest_tf, max_bytes=4096, full=False)
-                        if last_lines:
-                            last_line = last_lines[-1]
-                            if '"AskQuestion"' in last_line and '"turn_ended"' not in last_line:
-                                is_input = True
+                        if target_transcripts:
+                            latest_tf = max(target_transcripts, key=os.path.getmtime)
+                            last_lines = read_tail_lines(latest_tf, max_bytes=4096, full=False)
+                            if last_lines:
+                                last_line = last_lines[-1]
+                                if '"AskQuestion"' in last_line and '"turn_ended"' not in last_line:
+                                    is_input = True
 
         # Strip trailing status indicator from display title
         clean_t = re.sub(

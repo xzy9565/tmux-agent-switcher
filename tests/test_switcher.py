@@ -244,6 +244,28 @@ class TestCursorAdapter(unittest.TestCase):
             self.assertFalse(running)
             self.assertEqual(rank, 2)  # Rank 2 corresponds to 💤 idle
 
+    def test_cursor_screen_thinking_detected(self):
+        from unittest.mock import patch, MagicMock
+        pane = PaneContext(
+            pane_id="%1", pid="101", current_command="cursor-agent",
+            title="[Whisper Keyboard] - ✅ Ready",
+            bell_flag="0", pane_active="1", window_active="1", session_attached="1",
+            cwd="/tmp", tty=""
+        )
+        fake_screen = (
+            " ⠰⠰ Thinking  4.88k tokens\n"
+            " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄\n"
+            "  → Add a follow-up                                ctrl+c to stop\n"
+            " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n"
+        )
+        mock_proc = MagicMock()
+        mock_proc.stdout = fake_screen
+        with patch("subprocess.run", return_value=mock_proc):
+            name, color, rank, mtime, title, running = self.adapter.get_status(pane, "", "", {})
+            self.assertTrue(running)
+            self.assertEqual(rank, 1)  # Rank 1 corresponds to ⚡ run
+            self.assertEqual(title, "[Whisper Keyboard]")
+
 
 class TestClaudeAdapter(unittest.TestCase):
     def setUp(self):
