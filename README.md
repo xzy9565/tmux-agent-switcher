@@ -97,6 +97,16 @@ set -g @agent-switcher-height '82%'
 
 # Preview panel split ratio (default: 58%)
 set -g @agent-switcher-preview-width '58%'
+
+# Visual in-tmux alert: Highlight input-needed pane with yellow border (default: on)
+set -g @agent-switcher-mark-input 'on'
+
+# System-level notifications (default: none)
+# Options: none (default, 0 spam), bell, desktop (macOS osascript), passthrough (SSH OSC 777/9), all
+set -g @agent-switcher-notify 'none'
+
+# Automatically register tmux title & alert clearance hooks (default: on)
+set -g @agent-switcher-hook 'on'
 ```
 
 ---

@@ -33,6 +33,8 @@ MODULES_IN_ORDER = [
     ("adapters/system_monitor.py", "System Monitors Adapter"),
     ("adapters/fallback.py", "Tier 1 Fallback TUI Adapter"),
     ("adapters/registry.py", "Adapter Registry"),
+    ("notifications/context.py", "Pane Context & Session Resolver"),
+    ("notifications/gateway.py", "Universal Notification Gateway"),
     ("cli.py", "CLI Entrypoints & Subcommand Dispatcher"),
 ]
 
@@ -43,8 +45,9 @@ def clean_source(content: str) -> str:
     cleaned = re.sub(r'from \.[a-zA-Z0-9_\. ]+ import [^\n]+', '', cleaned)
     
     std_imports = [
-        r'import (?:argparse|collections|datetime|glob|json|os|re|shutil|sqlite3|subprocess|sys|textwrap|time|unicodedata|urllib\.parse)[^\n]*',
+        r'import (?:argparse|collections|datetime|glob|json|os|platform|re|select|shutil|sqlite3|subprocess|sys|textwrap|time|unicodedata|urllib\.parse)[^\n]*',
         r'from dataclasses import [^\n]+',
+        r'from pathlib import [^\n]+',
         r'from typing import [^\n]+',
     ]
     for pat in std_imports:
@@ -73,7 +76,10 @@ import datetime
 import glob
 import json
 import os
+from pathlib import Path
+import platform
 import re
+import select
 import shutil
 import sqlite3
 import subprocess

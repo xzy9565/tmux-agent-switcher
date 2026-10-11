@@ -339,5 +339,63 @@ class TestClaudeAdapter(unittest.TestCase):
         self.assertEqual(rank, 0)
 
 
+class TestNotificationSubsystem(unittest.TestCase):
+    def test_context_resolution_empty_payload(self):
+        from tmux_agent_switcher.notifications.context import resolve_notification_context
+        ctx = resolve_notification_context("AI Agent", {})
+        self.assertIn("pane", ctx)
+        self.assertIn("focused", ctx)
+        self.assertIn("location", ctx)
+
+    def test_handle_clear_no_throw(self):
+        from tmux_agent_switcher.notifications.gateway import handle_clear
+        # Ensure handle_clear runs without throwing even if tmux pane is non-existent
+        handle_clear("%999999")
+
+    def test_handle_notify_no_throw(self):
+        from tmux_agent_switcher.notifications.gateway import handle_notify
+        handle_notify("Claude", "Done", target_pane="%999999", force=False)
+
+    def test_handle_hook_title_deprecated_noop(self):
+        from unittest.mock import patch
+        from tmux_agent_switcher.notifications.gateway import handle_hook_title
+
+        with patch("subprocess.run") as mock_run:
+            handle_hook_title("%42")
+            # Deprecated: Pane title sniffing removed in favor of native agent hooks (0 subprocess calls)
+            self.assertEqual(mock_run.call_count, 0)
+
+    def test_cmd_hook_title_always_exits_zero(self):
+        import argparse
+        from unittest.mock import patch
+        from tmux_agent_switcher.cli import cmd_hook_title
+
+        with patch("tmux_agent_switcher.cli.handle_hook_title", side_effect=RuntimeError("Simulated error")):
+            with self.assertRaises(SystemExit) as cm:
+                cmd_hook_title(argparse.Namespace(pane_id="%42"))
+            self.assertEqual(cm.exception.code, 0)
+
+    def test_read_stdin_payload_nonblocking(self):
+        import io, os, select, subprocess, sys
+        from tmux_agent_switcher.cli import read_stdin_payload
+
+        # TTY check returns immediately
+        with unittest.mock.patch("sys.stdin.isatty", return_value=True):
+            self.assertEqual(read_stdin_payload(), "")
+
+        # Test pipe reading
+        r, w = os.pipe()
+        os.write(w, b'{"test": "payload"}')
+        # Do NOT close w (unclosed pipe)
+        saved_stdin = sys.stdin
+        try:
+            sys.stdin = io.TextIOWrapper(os.fdopen(r, "rb"))
+            val = read_stdin_payload(timeout=0.05)
+            self.assertEqual(val, '{"test": "payload"}')
+        finally:
+            sys.stdin = saved_stdin
+            os.close(w)
+
+
 if __name__ == "__main__":
     unittest.main()

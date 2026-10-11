@@ -10,6 +10,9 @@
 #   set -g @agent-switcher-width '88%'          # Popup width
 #   set -g @agent-switcher-height '82%'         # Popup height
 #   set -g @agent-switcher-preview-width '58%'  # Preview split width
+#   set -g @agent-switcher-mark-input 'on'      # Highlight input-needed pane with yellow border (on/off)
+#   set -g @agent-switcher-notify 'none'        # Notifications: none, bell, desktop, passthrough, all
+#   set -g @agent-switcher-hook 'on'            # Auto-register title & clearance hooks (on/off)
 # ==============================================================================
 
 CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -50,6 +53,16 @@ main() {
         -w "$popup_width" \
         -h "$popup_height" \
         -E "$BIN run --preview-width '$preview_width'"
+
+    # Automatic Tmux hooks for agent status tracking and alert clearance
+    local hook_enabled
+    hook_enabled="$(get_tmux_option "@agent-switcher-hook" "on")"
+
+    if [ "$hook_enabled" = "on" ]; then
+        tmux set-hook -g after-select-pane "run-shell '$BIN clear #{pane_id} >/dev/null 2>&1 || true'"
+        tmux set-hook -g session-window-changed "run-shell '$BIN clear #{pane_id} >/dev/null 2>&1 || true'"
+        tmux set-hook -g client-session-changed "run-shell '$BIN clear #{pane_id} >/dev/null 2>&1 || true'"
+    fi
 }
 
 main

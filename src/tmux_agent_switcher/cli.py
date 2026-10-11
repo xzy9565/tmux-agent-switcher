@@ -18,6 +18,8 @@ from .core.types import PreviewResult
 from .core.tmux import ProcessTree, list_all_panes, get_pane_context
 from .adapters.registry import ADAPTERS, resolve_adapter
 from .adapters.fallback import FallbackTuiAdapter
+from .notifications.gateway import handle_notify, handle_hook_title, handle_clear
+from .notifications.context import resolve_notification_context
 
 
 def index_shared_state() -> Dict[str, Any]:
@@ -298,6 +300,72 @@ def cmd_popup(args: argparse.Namespace) -> None:
     ])
 
 
+def read_stdin_payload(timeout: float = 0.05) -> str:
+    """Read available payload from stdin without blocking indefinitely on unclosed pipes."""
+    if sys.stdin.isatty():
+        return ""
+    try:
+        import select
+        chunks = []
+        r, _, _ = select.select([sys.stdin], [], [], timeout)
+        while r:
+            chunk = os.read(sys.stdin.fileno(), 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            r, _, _ = select.select([sys.stdin], [], [], 0.005)
+        return b"".join(chunks).decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+
+def cmd_notify(args: argparse.Namespace) -> None:
+    stdin_data = read_stdin_payload()
+    handle_notify(
+        agent_name=args.agent or "",
+        message=args.message or "",
+        target_pane=args.pane_id or "",
+        force=args.force,
+        stdin_data=stdin_data
+    )
+    print("{}")
+
+
+def cmd_hook_title(args: argparse.Namespace) -> None:
+    try:
+        pane_id = args.pane_id or os.environ.get("TMUX_PANE", "")
+        handle_hook_title(pane_id)
+    except Exception:
+        pass
+    sys.exit(0)
+
+
+def cmd_clear(args: argparse.Namespace) -> None:
+    try:
+        pane_id = args.pane_id or os.environ.get("TMUX_PANE", "")
+        handle_clear(pane_id)
+    except Exception:
+        pass
+    sys.exit(0)
+
+
+def cmd_context(args: argparse.Namespace) -> None:
+    raw = read_stdin_payload()
+    payload = {}
+    if raw:
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            payload = {}
+    ctx = resolve_notification_context(
+        agent_name=args.agent or "",
+        payload=payload,
+        target_pane=args.pane_id or "",
+        tag_session=getattr(args, "tag_session", False)
+    )
+    print(json.dumps(ctx))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="tmux-agent-switcher",
@@ -320,10 +388,28 @@ def main() -> None:
     p_pop.add_argument("--height", default="82%", help="Popup height (default: 82%%)")
     p_pop.add_argument("--preview-width", default="58%", help="Preview panel width (default: 58%%)")
 
+    p_not = sub.add_parser("notify", help="Universal AI agent notification dispatcher")
+    p_not.add_argument("agent", nargs="?", default="", help="Agent name (e.g. Claude, Cursor, AGY)")
+    p_not.add_argument("message", nargs="?", default="", help="Notification message summary")
+    p_not.add_argument("pane_id", nargs="?", default="", help="Target tmux pane identifier (e.g. %%43)")
+    p_not.add_argument("-f", "--force", action="store_true", help="Force notification even if focused")
+
+    p_hook = sub.add_parser("hook-title", help="Handle tmux pane-title-changed event")
+    p_hook.add_argument("pane_id", nargs="?", default="", help="Target tmux pane identifier (e.g. %%43)")
+
+    p_clr = sub.add_parser("clear", help="Clear visual yellow border and input alerts on pane")
+    p_clr.add_argument("pane_id", nargs="?", default="", help="Target tmux pane identifier (e.g. %%43)")
+
+    p_ctx = sub.add_parser("context", help="Resolve notification context for an agent")
+    p_ctx.add_argument("agent", nargs="?", default="", help="Agent name")
+    p_ctx.add_argument("pane_id", nargs="?", default="", help="Target tmux pane identifier")
+    p_ctx.add_argument("--tag-session", action="store_true", help="Tag tmux pane with session metadata")
+
     args = parser.parse_args()
     dispatch = {
         "list": cmd_list, "preview": cmd_preview, "copy": cmd_copy,
-        "run": cmd_run, "popup": cmd_popup
+        "run": cmd_run, "popup": cmd_popup, "notify": cmd_notify,
+        "hook-title": cmd_hook_title, "clear": cmd_clear, "context": cmd_context
     }
     if args.command in dispatch:
         dispatch[args.command](args)
