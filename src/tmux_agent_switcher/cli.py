@@ -65,11 +65,14 @@ def index_shared_state() -> Dict[str, Any]:
     # Claude indices
     claude_paths = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
     state["claude_idx"] = {os.path.basename(p)[:-6]: p for p in claude_paths}
+    state["cc_sessions"] = {}
     for f in glob.glob(os.path.expanduser("~/.claude*/sessions/*.json")):
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 d = json.load(fh)
-            state["cc_status"][str(d["pid"])] = d.get("status")
+            pid_s = str(d.get("pid", ""))
+            state["cc_status"][pid_s] = d.get("status")
+            state["cc_sessions"][pid_s] = d
         except Exception:
             pass
 
@@ -96,7 +99,11 @@ def cmd_list(args: argparse.Namespace) -> None:
         status = "💤 idle"
 
         if running and (now - mtime < 1800):
-            status, rank = "⚡ run", 1
+            if isinstance(running, str) and running in ("🤖 subagent", "🐚 shell"):
+                status = running
+            else:
+                status = "⚡ run"
+            rank = 1
 
         if is_monitor:
             rank, age_str = 3, "LIVE"

@@ -11,7 +11,9 @@ from tmux_agent_switcher.formatters.denoiser import denoise_terminal_text
 from tmux_agent_switcher.formatters.bubbles import format_turns
 from tmux_agent_switcher.adapters.base import extract_duck_turns
 from tmux_agent_switcher.adapters.registry import resolve_adapter
-from tmux_agent_switcher.adapters.claude import ClaudeAdapter
+from tmux_agent_switcher.adapters.claude import (
+    ClaudeAdapter, resolve_session_chain, find_active_session_info
+)
 from tmux_agent_switcher.adapters.antigravity import AntigravityAdapter
 from tmux_agent_switcher.adapters.codex import CodexAdapter
 from tmux_agent_switcher.adapters.cursor import CursorAdapter
@@ -241,6 +243,78 @@ class TestCursorAdapter(unittest.TestCase):
             name, color, rank, mtime, title, running = self.adapter.get_status(pane, "", "", {})
             self.assertFalse(running)
             self.assertEqual(rank, 2)  # Rank 2 corresponds to 💤 idle
+
+
+class TestClaudeAdapter(unittest.TestCase):
+    def setUp(self):
+        self.adapter = ClaudeAdapter()
+
+    def test_claude_resolve_continuation_chain(self):
+        import tempfile, json
+        with tempfile.NamedTemporaryFile("w+", delete=False) as f1, \
+             tempfile.NamedTemporaryFile("w+", delete=False) as f2:
+            f1.write(json.dumps({"type": "continued-in", "continuedInSessionId": "sess-2"}) + "\n")
+            f1.flush()
+            f2.write(json.dumps({"type": "user", "message": {"content": "hi"}, "timestamp": "2026-10-11T12:00:00Z"}) + "\n")
+            f2.flush()
+            
+            claude_idx = {"sess-1": f1.name, "sess-2": f2.name}
+            resolved = resolve_session_chain("sess-1", claude_idx)
+            self.assertEqual(resolved, "sess-2")
+
+    def test_claude_running_status_from_cc_status(self):
+        pane = PaneContext(
+            pane_id="%1", pid="101", current_command="claude",
+            title="[Whisper Keyboard]",
+            bell_flag="0", pane_active="1", window_active="1", session_attached="1",
+            cwd="/tmp", tty="", claude_sid="sess-1"
+        )
+        shared_state = {
+            "claude_idx": {},
+            "cc_status": {"101": "busy"},
+            "cc_sessions": {},
+            "tree": {},
+            "my_pid": "999"
+        }
+        name, color, rank, mtime, title, running = self.adapter.get_status(pane, "", "", shared_state)
+        self.assertTrue(running)
+        self.assertEqual(rank, 1)
+
+    def test_claude_subagent_status(self):
+        pane = PaneContext(
+            pane_id="%1", pid="101", current_command="claude",
+            title="[Whisper Keyboard]",
+            bell_flag="0", pane_active="1", window_active="1", session_attached="1",
+            cwd="/tmp", tty="", claude_sid="sess-1"
+        )
+        shared_state = {
+            "claude_idx": {},
+            "cc_status": {"101": "agents"},
+            "cc_sessions": {},
+            "tree": {},
+            "my_pid": "999"
+        }
+        name, color, rank, mtime, title, running = self.adapter.get_status(pane, "", "", shared_state)
+        self.assertEqual(running, "🤖 subagent")
+        self.assertEqual(rank, 1)
+
+    def test_claude_waiting_status(self):
+        pane = PaneContext(
+            pane_id="%1", pid="101", current_command="claude",
+            title="[Whisper Keyboard]",
+            bell_flag="0", pane_active="1", window_active="1", session_attached="1",
+            cwd="/tmp", tty="", claude_sid="sess-1"
+        )
+        shared_state = {
+            "claude_idx": {},
+            "cc_status": {"101": "waiting"},
+            "cc_sessions": {},
+            "tree": {},
+            "my_pid": "999"
+        }
+        name, color, rank, mtime, title, running = self.adapter.get_status(pane, "", "", shared_state)
+        self.assertFalse(running)
+        self.assertEqual(rank, 0)
 
 
 if __name__ == "__main__":
