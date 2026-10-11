@@ -33,6 +33,15 @@ class CursorAdapter(BaseAgentAdapter):
         w_files = glob.glob(os.path.expanduser("~/.cursor/projects/**/worker.log"), recursive=True)
         mtime = max((os.path.getmtime(f) for f in (t_files + w_files)), default=0.0)
 
+        # Prefer project-specific mtime if pane.cwd matches a known project
+        proj_transcripts: List[str] = []
+        if pane.cwd:
+            encoded = pane.cwd.strip("/").replace("/", "-")
+            proj_transcripts = glob.glob(os.path.expanduser(f"~/.cursor/projects/{encoded}/agent-transcripts/*/*.jsonl"))
+            proj_logs = glob.glob(os.path.expanduser(f"~/.cursor/projects/{encoded}/**/worker.log"), recursive=True)
+            if proj_transcripts or proj_logs:
+                mtime = max((os.path.getmtime(f) for f in (proj_transcripts + proj_logs)), default=0.0)
+
         raw_title = pane.title or ""
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", raw_title).strip()
 
@@ -45,6 +54,57 @@ class CursorAdapter(BaseAgentAdapter):
             re.IGNORECASE
         ))
         is_input = bool(re.search(r"(?:Waiting for you|Waiting for confirmation)", raw_title, re.IGNORECASE))
+
+        # If not running and not flagged by title, inspect terminal buffer & transcripts
+        # to catch interactive choice questions (AskQuestion) and permission/approval prompts
+        if not is_running and not is_input:
+            screen = ""
+            try:
+                screen = subprocess.run(
+                    ["tmux", "capture-pane", "-pJ", "-S", "-25", "-t", pane.pane_id],
+                    capture_output=True,
+                    text=True,
+                    timeout=0.25
+                ).stdout or ""
+            except Exception:
+                pass
+
+            if screen:
+                # 1. Interactive choice / question box (Ink / React CLI UI)
+                # Matches navigation footer: "Space select · Enter next/submit · Esc to skip" or "Enter select · Esc skip"
+                question_ui = bool(re.search(
+                    r"(?:Space select|Enter next/submit|Esc to skip|Enter select · Esc skip)",
+                    screen,
+                    re.IGNORECASE
+                ))
+                question_body = bool(
+                    re.search(r"Question \d+ of \d+", screen, re.IGNORECASE) and
+                    re.search(r"›\s*\[[ x]\]", screen)
+                )
+                # 2. Tool / command execution approval prompt
+                approval_prompt = bool(re.search(
+                    r"(?:Allow this command|Do you want to run|Allow once|Always allow|Allow \[y/n\]|Run command\?|Approve execution)",
+                    screen,
+                    re.IGNORECASE
+                ))
+
+                if question_ui or question_body or approval_prompt:
+                    is_input = True
+                else:
+                    # 3. Check active transcript if short ID found on screen or via project
+                    target_transcripts = proj_transcripts
+                    if not target_transcripts:
+                        short_ids = set(re.findall(r"(?:·|›)\s*([0-9a-f]{8})\s*(?:·|›)", screen))
+                        if short_ids:
+                            target_transcripts = [tf for tf in t_files if os.path.basename(tf)[:8] in short_ids]
+
+                    if target_transcripts:
+                        latest_tf = max(target_transcripts, key=os.path.getmtime)
+                        last_lines = read_tail_lines(latest_tf, max_bytes=4096, full=False)
+                        if last_lines:
+                            last_line = last_lines[-1]
+                            if '"AskQuestion"' in last_line and '"turn_ended"' not in last_line:
+                                is_input = True
 
         # Strip trailing status indicator from display title
         clean_t = re.sub(
@@ -115,6 +175,13 @@ class CursorAdapter(BaseAgentAdapter):
                         sid = next(iter(matched))
                 except Exception:
                     pass
+
+            if not sid and pane.cwd:
+                encoded = pane.cwd.strip("/").replace("/", "-")
+                proj_matches = glob.glob(os.path.expanduser(f"~/.cursor/projects/{encoded}/agent-transcripts/*/*.jsonl"))
+                if proj_matches:
+                    latest_proj = max(proj_matches, key=os.path.getmtime)
+                    sid = os.path.basename(latest_proj)[:-6]
 
             matches = glob.glob(os.path.expanduser(f"~/.cursor/projects/*/agent-transcripts/{sid}/{sid}.jsonl")) if sid else []
             if matches:

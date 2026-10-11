@@ -149,5 +149,99 @@ class TestAdapterResolution(unittest.TestCase):
         self.assertIsInstance(adapter, FallbackTuiAdapter)
 
 
+class TestCursorAdapter(unittest.TestCase):
+    def setUp(self):
+        self.adapter = CursorAdapter()
+
+    def test_cursor_running_status(self):
+        pane = PaneContext(
+            pane_id="%1", pid="101", current_command="cursor-agent",
+            title="[Whisper] - ⏳ Working on fix",
+            bell_flag="0", pane_active="1", window_active="1", session_attached="1",
+            cwd="/tmp", tty=""
+        )
+        name, color, rank, mtime, title, running = self.adapter.get_status(pane, "", "", {})
+        self.assertTrue(running)
+        self.assertEqual(rank, 1)
+        self.assertEqual(title, "[Whisper]")
+
+    def test_cursor_waiting_title_status(self):
+        pane = PaneContext(
+            pane_id="%1", pid="101", current_command="cursor-agent",
+            title="[Whisper] - ❓ Waiting for you",
+            bell_flag="0", pane_active="1", window_active="1", session_attached="1",
+            cwd="/tmp", tty=""
+        )
+        name, color, rank, mtime, title, running = self.adapter.get_status(pane, "", "", {})
+        self.assertFalse(running)
+        self.assertEqual(rank, 0)
+        self.assertEqual(title, "[Whisper]")
+
+    def test_cursor_screen_question_detected(self):
+        from unittest.mock import patch, MagicMock
+        pane = PaneContext(
+            pane_id="%1", pid="101", current_command="cursor-agent",
+            title="[Whisper Keyboard] - ✅ Ready",
+            bell_flag="0", pane_active="1", window_active="1", session_attached="1",
+            cwd="/tmp", tty=""
+        )
+        fake_screen = (
+            "Question 1 of 1\n"
+            "1. 键盘扩展不能用麦克风，语音输入改成哪种方式？\n"
+            "  › [ ] 主 App 负责录音\n"
+            "    [ ] 只在 Whisper 主 App 里说话\n"
+            "↑/↓ option · ←/→ question · Space select · Enter next/submit · Esc to skip\n"
+        )
+        mock_proc = MagicMock()
+        mock_proc.stdout = fake_screen
+        with patch("subprocess.run", return_value=mock_proc):
+            name, color, rank, mtime, title, running = self.adapter.get_status(pane, "", "", {})
+            self.assertFalse(running)
+            self.assertEqual(rank, 0)  # Rank 0 corresponds to 🔔 input
+            self.assertEqual(title, "[Whisper Keyboard]")
+
+    def test_cursor_screen_approval_detected(self):
+        from unittest.mock import patch, MagicMock
+        pane = PaneContext(
+            pane_id="%1", pid="101", current_command="cursor-agent",
+            title="[Project] - ✅ Ready",
+            bell_flag="0", pane_active="1", window_active="1", session_attached="1",
+            cwd="/tmp", tty=""
+        )
+        fake_screen = (
+            "Run shell command: npm test\n"
+            "Do you want to run this command?\n"
+            "› [ ] Allow once\n"
+            "  [ ] Always allow\n"
+            "Enter select · Esc skip\n"
+        )
+        mock_proc = MagicMock()
+        mock_proc.stdout = fake_screen
+        with patch("subprocess.run", return_value=mock_proc):
+            name, color, rank, mtime, title, running = self.adapter.get_status(pane, "", "", {})
+            self.assertFalse(running)
+            self.assertEqual(rank, 0)
+
+    def test_cursor_screen_idle_at_prompt(self):
+        from unittest.mock import patch, MagicMock
+        pane = PaneContext(
+            pane_id="%1", pid="101", current_command="cursor-agent",
+            title="[Whisper Keyboard] - ✅ Ready",
+            bell_flag="0", pane_active="1", window_active="1", session_attached="1",
+            cwd="/tmp", tty=""
+        )
+        fake_screen = (
+            "Here is the summary of the fix.\n"
+            "  → Add a follow-up\n"
+            "  1 task\n"
+        )
+        mock_proc = MagicMock()
+        mock_proc.stdout = fake_screen
+        with patch("subprocess.run", return_value=mock_proc):
+            name, color, rank, mtime, title, running = self.adapter.get_status(pane, "", "", {})
+            self.assertFalse(running)
+            self.assertEqual(rank, 2)  # Rank 2 corresponds to 💤 idle
+
+
 if __name__ == "__main__":
     unittest.main()
