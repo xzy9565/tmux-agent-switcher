@@ -1,5 +1,7 @@
 """Unit tests for tmux-agent-switcher core, formatters, and adapters."""
 
+import json
+import os
 import unittest
 from tmux_agent_switcher.core.config import (
     C_RESET, C_PEACH, C_ICE_BLUE, C_MINT, str_display_width
@@ -353,8 +355,10 @@ class TestNotificationSubsystem(unittest.TestCase):
         handle_clear("%999999")
 
     def test_handle_notify_no_throw(self):
+        from unittest.mock import patch
         from tmux_agent_switcher.notifications.gateway import handle_notify
-        handle_notify("Claude", "Done", target_pane="%999999", force=False)
+        with patch("subprocess.Popen"):
+            handle_notify("Claude", "Done", target_pane="%999999", force=False)
 
     def test_handle_hook_title_deprecated_noop(self):
         from unittest.mock import patch
@@ -388,13 +392,79 @@ class TestNotificationSubsystem(unittest.TestCase):
         os.write(w, b'{"test": "payload"}')
         # Do NOT close w (unclosed pipe)
         saved_stdin = sys.stdin
+        pipe_io = io.TextIOWrapper(os.fdopen(r, "rb"))
         try:
-            sys.stdin = io.TextIOWrapper(os.fdopen(r, "rb"))
+            sys.stdin = pipe_io
             val = read_stdin_payload(timeout=0.05)
             self.assertEqual(val, '{"test": "payload"}')
         finally:
             sys.stdin = saved_stdin
+            pipe_io.close()
             os.close(w)
+
+    def test_claude_last_turn_uuid(self):
+        import tempfile
+        from tmux_agent_switcher.notifications.gateway import _get_claude_last_turn_uuid
+
+        with tempfile.NamedTemporaryFile("w+", delete=False) as f:
+            f.write(json.dumps({"type": "user", "uuid": "u-123"}) + "\n")
+            f.write(json.dumps({"type": "assistant", "uuid": "a-456"}) + "\n")
+            f.write(json.dumps({"type": "cost-state"}) + "\n")
+            f_path = f.name
+        try:
+            self.assertEqual(_get_claude_last_turn_uuid(f_path), "a-456")
+        finally:
+            os.unlink(f_path)
+
+    def test_claude_stop_hold_when_background_tasks_active(self):
+        import tempfile
+        from unittest.mock import patch
+        from tmux_agent_switcher.notifications.gateway import handle_notify
+
+        with tempfile.NamedTemporaryFile("w+", delete=False) as f:
+            f.write(json.dumps({"type": "user", "uuid": "u-1"}) + "\n")
+            f.write(json.dumps({"type": "assistant", "uuid": "a-2"}) + "\n")
+            f_path = f.name
+        try:
+            payload = {
+                "hook_event_name": "Stop",
+                "background_tasks": ["shell_task_1"],
+                "last_assistant_message": "I will run the build in the background and notify you when finished.",
+                "transcript_path": f_path,
+            }
+            with patch("tmux_agent_switcher.notifications.gateway._dispatch_claude_settle_daemon") as mock_dispatch:
+                handle_notify("Claude", "Done", target_pane="%1", stdin_data=json.dumps(payload))
+                mock_dispatch.assert_called_once()
+                args, _ = mock_dispatch.call_args
+                self.assertEqual(args[1], "a-2")  # mark
+                self.assertEqual(args[2], 1800.0) # wait_s (held for 30m)
+        finally:
+            os.unlink(f_path)
+
+    def test_claude_stop_settle_when_question_asked(self):
+        import tempfile
+        from unittest.mock import patch
+        from tmux_agent_switcher.notifications.gateway import handle_notify
+
+        with tempfile.NamedTemporaryFile("w+", delete=False) as f:
+            f.write(json.dumps({"type": "user", "uuid": "u-1"}) + "\n")
+            f.write(json.dumps({"type": "assistant", "uuid": "a-2"}) + "\n")
+            f_path = f.name
+        try:
+            payload = {
+                "hook_event_name": "Stop",
+                "background_tasks": ["shell_task_1"],
+                "last_assistant_message": "Build started in background.\n\nWould you like me to run tests as well?",
+                "transcript_path": f_path,
+            }
+            with patch("tmux_agent_switcher.notifications.gateway._dispatch_claude_settle_daemon") as mock_dispatch:
+                handle_notify("Claude", "Done", target_pane="%1", stdin_data=json.dumps(payload))
+                mock_dispatch.assert_called_once()
+                args, _ = mock_dispatch.call_args
+                self.assertEqual(args[1], "a-2") # mark
+                self.assertEqual(args[2], 3.0)   # wait_s (settle 3s only, not held for 30m!)
+        finally:
+            os.unlink(f_path)
 
 
 if __name__ == "__main__":

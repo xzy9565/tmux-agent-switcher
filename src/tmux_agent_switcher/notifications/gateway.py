@@ -84,6 +84,78 @@ def _check_agy_waiting(conv_id: str) -> bool:
         return False
 
 
+def _get_claude_last_turn_uuid(transcript_path: str) -> Optional[str]:
+    """Extract uuid of the transcript's last user/assistant entry."""
+    if not transcript_path or not os.path.isfile(transcript_path):
+        return None
+    try:
+        with open(transcript_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()[-200:]
+        for line in reversed(lines):
+            try:
+                d = json.loads(line)
+                if d.get("type") in ("user", "assistant") and d.get("uuid"):
+                    return str(d["uuid"])
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def _dispatch_claude_settle_daemon(
+    tp: str,
+    mark: str,
+    wait_s: float,
+    payload: Dict[str, Any],
+    agent_name: str,
+    message: str,
+    target_pane: str,
+    force: bool,
+) -> None:
+    """Spawn detached background daemon to re-dispatch notification after settle/hold wait."""
+    self_cmd = sys.argv[0] if sys.argv and os.path.isfile(sys.argv[0]) else "tmux-agent-switcher"
+    sub_payload = dict(payload)
+    sub_payload["settled"] = True
+
+    daemon_py = (
+        "import json, os, subprocess, sys, time\n"
+        f"time.sleep({wait_s})\n"
+        "curr = None\n"
+        "try:\n"
+        f"    with open({repr(tp)}, 'r', encoding='utf-8', errors='ignore') as f:\n"
+        "        lines = f.readlines()[-200:]\n"
+        "    for l in reversed(lines):\n"
+        "        try:\n"
+        "            d = json.loads(l)\n"
+        "            if d.get('type') in ('user', 'assistant') and d.get('uuid'):\n"
+        "                curr = str(d['uuid'])\n"
+        "                break\n"
+        "        except Exception:\n"
+        "            pass\n"
+        "except Exception:\n"
+        "    pass\n"
+        f"if curr == {repr(mark)}:\n"
+        f"    cmd = [{repr(self_cmd)}, 'notify']\n"
+        + (f"    cmd.append({repr(agent_name)})\n" if agent_name else "")
+        + (f"    cmd.append({repr(message)})\n" if message else "")
+        + (f"    cmd.append({repr(target_pane)})\n" if target_pane else "")
+        + ("    cmd.append('--force')\n" if force else "")
+        + "    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+        f"    p.communicate(input=json.dumps({repr(sub_payload)}).encode('utf-8'))\n"
+    )
+    try:
+        subprocess.Popen(
+            [sys.executable, "-c", daemon_py],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception:
+        pass
+
+
 def handle_notify(
     agent_name: str = "",
     message: str = "",
@@ -102,6 +174,34 @@ def handle_notify(
     # Headless SDK suppression
     if os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk-") and "hook_event_name" in payload:
         return
+
+    # Claude Code Stop hold and settle suppression:
+    # 1. Settle: Queued input or fast next-turn results start immediately after Stop,
+    #    so settle AGENT_NOTIFY_SETTLE_S (default 3s) first to avoid alert during turn overlap.
+    # 2. Hold: While background work is in flight (.background_tasks non-empty), Claude wakes itself
+    #    when it lands, so hold AGENT_NOTIFY_HOLD_S (default 1800s) unless the reply asks a question (?).
+    if not force and payload.get("hook_event_name") == "Stop" and not payload.get("settled"):
+        bg_tasks = payload.get("background_tasks") or []
+        last_msg = payload.get("last_assistant_message") or ""
+        last_para = re.split(r'\n\s*\n', last_msg.rstrip())[-1] if last_msg else ""
+        asks_question = bool(re.search(r'\?(\s|$|[*_`)"”’\'])', last_para))
+
+        held = False
+        wait_s = float(os.environ.get("AGENT_NOTIFY_SETTLE_S", 3.0))
+        if len(bg_tasks) > 0 and not asks_question:
+            held = True
+            wait_s = float(os.environ.get("AGENT_NOTIFY_HOLD_S", 1800.0))
+
+        tp = payload.get("transcript_path", "")
+        if tp and os.path.isfile(tp):
+            mark = _get_claude_last_turn_uuid(tp)
+            if mark and wait_s > 0:
+                _dispatch_claude_settle_daemon(
+                    tp, mark, wait_s, payload, agent_name, message, target_pane, force
+                )
+                return
+        if held:
+            return
 
     # Codex goal suppression
     transcript_path = payload.get("transcript_path", "")
@@ -129,10 +229,12 @@ def handle_notify(
     # Extract message details if empty
     if not message:
         if payload.get("tool_name") or payload.get("permission_request") or payload.get("permission"):
+            perm = payload.get("permission")
+            perm_name = perm.get("type") if isinstance(perm, dict) else perm
             tool_name = (
                 payload.get("tool_name")
                 or payload.get("permission_request", {}).get("tool")
-                or payload.get("permission")
+                or perm_name
                 or "Tool"
             )
             message = f"Approval needed: {tool_name}"
@@ -200,6 +302,11 @@ def handle_notify(
     mark_input = _tmux_option("@agent-switcher-mark-input", "on").lower()
     notify_mode = _tmux_option("@agent-switcher-notify", "none").lower()
 
+    # Check if notification should be suppressed due to focus
+    # When focused, suppress in-tmux yellow border, bell, and desktop banner unless forced
+    if not force and is_focused:
+        return
+
     # Apply In-Tmux visual mark (Layer 2)
     if mark_input == "on" and pane:
         try:
@@ -216,10 +323,6 @@ def handle_notify(
                 pt.write("\a")
         except Exception:
             pass
-
-    # Check if desktop notification should be suppressed due to focus
-    if not force and is_focused:
-        return
 
     # Check if system notification mode is enabled (Layer 3)
     if notify_mode in ("none", "off", "bell"):
@@ -257,12 +360,14 @@ def handle_notify(
             pass
 
     # Remote SSH OSC passthrough (only for SSH or explicit passthrough, never duplicate on local desktop)
-    if (is_ssh or notify_mode == "passthrough" or (notify_mode == "all" and not sent_desktop)) and client_tty and os.path.exists(client_tty):
+    target_tty = client_tty or pane_tty
+    if (is_ssh or notify_mode == "passthrough" or (notify_mode == "all" and not sent_desktop)) and target_tty and os.path.exists(target_tty):
         osc_title = f"{safe_title} · {safe_ctx}"
+        osc_777 = f"\x1bPtmux;\x1b\x1b]777;notify;{osc_title};{safe_msg}\x1b\\\x1b\\"
         osc_9 = f"\x1bPtmux;\x1b\x1b]9;{osc_title}: {safe_msg}\x1b\\\x1b\\"
         try:
-            with open(client_tty, "w") as ct:
-                ct.write(osc_9)
+            with open(target_tty, "w") as ct:
+                ct.write(osc_777 + osc_9)
         except Exception:
             pass
 

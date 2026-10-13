@@ -167,7 +167,7 @@ def resolve_agent_pane(
     agent_lower = agent.lower()
     if agent_lower == "codex":
         sid = payload.get("session_id") or payload.get("thread-id") or ""
-        if not sid:
+        if not sid or metadata.get("source") not in (None, "cli"):
             return None
         named = []
         for pane in live:
@@ -201,6 +201,24 @@ def resolve_agent_pane(
     return lookup(inherited) if inherited else None
 
 
+def resolve_client_context(pane: Optional[Dict[str, str]], clients: List[List[str]]) -> Dict[str, Any]:
+    """Determine focus status and client tty for a given pane."""
+    if not pane:
+        return {"pane": "", "location": "", "focused": False, "pane_tty": "", "client_tty": ""}
+    matching = [c for c in clients if c[0] == pane["pane"]]
+    focused = [c for c in matching if "focused" in c[2].split(",")]
+    session = pane["location"].rsplit(":", 1)[0]
+    same_session = [c for c in clients if len(c) > 3 and c[3] == session]
+    client = (focused or matching or (same_session if len(same_session) == 1 else []) or [None])[0]
+    return {
+        "pane": pane["pane"],
+        "location": pane["location"],
+        "focused": bool(focused),
+        "pane_tty": pane.get("pane_tty", ""),
+        "client_tty": client[1] if client else ""
+    }
+
+
 def resolve_notification_context(
     agent_name: str,
     payload: Dict[str, Any],
@@ -230,16 +248,4 @@ def resolve_notification_context(
         elif agent_name.lower() in ("claude", "claude code", "claudecode") or (not agent_name and "transcript_path" in payload):
             _tmux_cmd(["tmux", "set-option", "-p", "-t", pane["pane"], "@claude-session-id", sid])
 
-    matching = [c for c in clients if c[0] == pane["pane"]]
-    focused = [c for c in matching if "focused" in c[2].split(",")]
-    session = pane["location"].rsplit(":", 1)[0]
-    same_session = [c for c in clients if len(c) > 3 and c[3] == session]
-    client = (focused or matching or (same_session if len(same_session) == 1 else []) or [None])[0]
-
-    return {
-        "pane": pane["pane"],
-        "location": pane["location"],
-        "focused": bool(focused),
-        "pane_tty": pane.get("pane_tty", ""),
-        "client_tty": client[1] if client else ""
-    }
+    return resolve_client_context(pane, clients)
