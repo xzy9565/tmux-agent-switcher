@@ -111,6 +111,61 @@ set -g @agent-switcher-hook 'on'
 
 ---
 
+### 🔔 AI Agent Notifications Setup (Optional)
+
+`tmux-agent-switcher` includes a universal notification gateway (`tmux-agent-switcher notify`) that highlights input-needed panes with a yellow border and dispatches desktop or terminal bell alerts.
+
+If you wish to connect your AI coding agents to trigger notifications upon task completion or input requests:
+
+#### 1. Ensure `tmux-agent-switcher` is in your `PATH`
+If installed via TPM, symlink the executable to your user binary directory:
+```bash
+ln -sf ~/.tmux/plugins/tmux-agent-switcher/bin/tmux-agent-switcher ~/.local/bin/
+```
+
+#### 2. Configure Agent Hooks
+
+- **Claude Code** (`~/.claude/settings.json`):
+  ```json
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "tmux-agent-switcher notify" }
+        ]
+      }
+    ]
+  }
+  ```
+
+- **Cursor CLI** (`~/.cursor/hooks.json`):
+  ```json
+  {
+    "version": 1,
+    "hooks": {
+      "stop": [
+        { "command": "tmux-agent-switcher notify Cursor 'Task complete' \"$TMUX_PANE\"" }
+      ]
+    }
+  }
+  ```
+
+- **OpenAI Codex** (`~/.codex/hooks.json`):
+  ```json
+  {
+    "hooks": {
+      "agent-turn-complete": [
+        { "command": "tmux-agent-switcher notify Codex" }
+      ]
+    }
+  }
+  ```
+
+> [!NOTE]
+> All core interactive switching capabilities (`Prefix + Space`) work 100% out of the box without configuring any agent hooks. Hooks are strictly optional for automated alert clearance, yellow borders, and desktop notifications.
+
+---
+
 ### ⚡ 2. Manual Installation (Without TPM)
 
 #### Option A: Run Plugin Entrypoint Directly
