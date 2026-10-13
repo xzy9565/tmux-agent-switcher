@@ -156,6 +156,16 @@ def _dispatch_claude_settle_daemon(
         pass
 
 
+def _osc9(text: str, term: str) -> str:
+    """OSC 9 desktop alert. A client that itself runs inside tmux needs it wrapped for passthrough, every inner ESC doubled."""
+    # OSC 9 only: Ghostty and WezTerm also render OSC 777, so sending both shows two banners.
+    clean = re.sub(r"[\x00-\x1f\x7f]", " ", text)  # agent text must not end the sequence or inject another
+    seq = f"\x1b]9;{clean}\x1b\\"
+    if term.startswith(("tmux", "screen")):
+        seq = "\x1bPtmux;" + seq.replace("\x1b", "\x1b\x1b") + "\x1b\\"
+    return seq
+
+
 def handle_notify(
     agent_name: str = "",
     message: str = "",
@@ -347,11 +357,11 @@ def handle_notify(
     safe_ctx = notify_context.replace('"', ' ').replace('\\', ' ')
 
     is_darwin = platform.system() == "Darwin"
-    is_ssh = bool(os.environ.get("SSH_CLIENT") or os.environ.get("SSH_TTY") or os.environ.get("SSH_CONNECTION"))
+    remote = ctx.get("remote_clients", [])
 
-    # Local macOS notification
+    # Local macOS notification, unless every attached client is remote
     sent_desktop = False
-    if is_darwin and not is_ssh and notify_mode in ("desktop", "all"):
+    if is_darwin and (ctx.get("local_client") or not remote) and notify_mode in ("desktop", "all"):
         script = f'display notification "{safe_msg}" with title "{safe_title}" subtitle "{safe_ctx}"'
         try:
             subprocess.Popen(["osascript", "-e", script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -359,15 +369,16 @@ def handle_notify(
         except Exception:
             pass
 
-    # Remote SSH OSC passthrough (only for SSH or explicit passthrough, never duplicate on local desktop)
-    target_tty = client_tty or pane_tty
-    if (is_ssh or notify_mode == "passthrough" or (notify_mode == "all" and not sent_desktop)) and target_tty and os.path.exists(target_tty):
-        osc_title = f"{safe_title} · {safe_ctx}"
-        osc_777 = f"\x1bPtmux;\x1b\x1b]777;notify;{osc_title};{safe_msg}\x1b\\\x1b\\"
-        osc_9 = f"\x1bPtmux;\x1b\x1b]9;{osc_title}: {safe_msg}\x1b\\\x1b\\"
-        try:
-            with open(target_tty, "w") as ct:
-                ct.write(osc_777 + osc_9)
-        except Exception:
-            pass
+    # OSC 9 to every SSH client (the user may sit at either end), plus the local client in passthrough mode.
+    # With no client resolved, the pane's own tty: its tmux forwards the wrapped alert if passthrough is allowed.
+    targets = list(remote)
+    if (notify_mode == "passthrough" or (notify_mode == "all" and not sent_desktop)) and client_tty not in [t for t, _ in remote]:
+        targets.append((client_tty, ctx.get("client_term", "")) if client_tty else (pane_tty, "tmux"))
+    for tty, term in targets:
+        if tty and os.path.exists(tty):
+            try:
+                with open(tty, "w") as ct:
+                    ct.write(_osc9(f"{safe_title} · {safe_ctx}: {safe_msg}", term))
+            except Exception:
+                pass
 

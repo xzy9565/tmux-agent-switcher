@@ -102,7 +102,9 @@ set -g @agent-switcher-preview-width '58%'
 set -g @agent-switcher-mark-input 'on'
 
 # System-level notifications (default: none)
-# Options: none (default, 0 spam), bell, desktop (macOS osascript), passthrough (SSH OSC 777/9), all
+# Options: none (default, 0 spam), bell, desktop (macOS osascript), passthrough (OSC 9), all
+# Clients attached over SSH get OSC 9 in any mode but none/bell. If your local terminal runs tmux,
+# allow passthrough in the ssh pane: tmux set -p allow-passthrough all (all = also while it is hidden)
 set -g @agent-switcher-notify 'none'
 
 # Automatically register tmux title & alert clearance hooks (default: on)

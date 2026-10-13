@@ -215,7 +215,8 @@ def resolve_client_context(pane: Optional[Dict[str, str]], clients: List[List[st
         "location": pane["location"],
         "focused": bool(focused),
         "pane_tty": pane.get("pane_tty", ""),
-        "client_tty": client[1] if client else ""
+        "client_tty": client[1] if client else "",
+        "client_term": client[5] if client and len(client) > 5 else ""
     }
 
 
@@ -236,11 +237,15 @@ def resolve_notification_context(
     pane = resolve_agent_pane(agent_name, payload, live, procs, metadata, target_pane, inherited)
 
     # Inspect clients for focus state
-    client_lines = _tmux_cmd(["tmux", "list-clients", "-F", "#{pane_id}\t#{client_tty}\t#{client_flags}\t#{session_name}"]).splitlines()
-    clients = [c.split("\t") for c in client_lines if len(c.split("\t")) == 4]
+    fmt = "#{pane_id}\t#{client_tty}\t#{client_flags}\t#{session_name}\t#{client_pid}\t#{client_termname}"
+    client_lines = _tmux_cmd(["tmux", "list-clients", "-F", fmt]).splitlines()
+    clients = [c.split("\t") for c in client_lines if len(c.split("\t")) == 6]
+    # A client attached over SSH carries SSH_* in its own env. The hook's env only shows how the server started.
+    remote = [c for c in clients if re.search(r" SSH_(CONNECTION|TTY|CLIENT)=", _tmux_cmd(["ps", "eww", "-o", "command=", "-p", c[4]]))]
+    where = {"remote_clients": [(c[1], c[5]) for c in remote], "local_client": len(remote) < len(clients)}
 
     if not pane:
-        return {"pane": "", "location": "", "focused": False, "pane_tty": "", "client_tty": ""}
+        return {"pane": "", "location": "", "focused": False, "pane_tty": "", "client_tty": "", **where}
 
     if sid and tag_session:
         if agent_name.lower() == "codex" and find_codex_clients(pane, procs):
@@ -248,4 +253,4 @@ def resolve_notification_context(
         elif agent_name.lower() in ("claude", "claude code", "claudecode") or (not agent_name and "transcript_path" in payload):
             _tmux_cmd(["tmux", "set-option", "-p", "-t", pane["pane"], "@claude-session-id", sid])
 
-    return resolve_client_context(pane, clients)
+    return {**resolve_client_context(pane, clients), **where}

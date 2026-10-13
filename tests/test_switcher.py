@@ -369,6 +369,13 @@ class TestNotificationSubsystem(unittest.TestCase):
             # Deprecated: Pane title sniffing removed in favor of native agent hooks (0 subprocess calls)
             self.assertEqual(mock_run.call_count, 0)
 
+    def test_osc9_raw_for_a_terminal_wrapped_for_a_nested_tmux(self):
+        from tmux_agent_switcher.notifications.gateway import _osc9
+        # Control bytes in agent text cannot end the alert or smuggle in another sequence (here OSC 52).
+        self.assertEqual(_osc9("hi\x1b]52;c;eA==\x07", "xterm-ghostty"), "\x1b]9;hi ]52;c;eA== \x1b\\")
+        # Passthrough needs every inner ESC doubled, including the one in the closing ST.
+        self.assertEqual(_osc9("hi", "tmux-256color"), "\x1bPtmux;\x1b\x1b]9;hi\x1b\x1b\\\x1b\\")
+
     def test_cmd_hook_title_always_exits_zero(self):
         import argparse
         from unittest.mock import patch
