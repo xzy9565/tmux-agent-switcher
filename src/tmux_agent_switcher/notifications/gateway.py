@@ -103,6 +103,39 @@ def _get_claude_last_turn_uuid(transcript_path: str) -> Optional[str]:
     return None
 
 
+def _idle_teammates(transcript_path: str) -> set:
+    """Descriptions of idle in-process teammates. Stop payloads list a teammate as running until it shuts down."""
+    names: Dict[str, str] = {}
+    idle = set()
+    try:
+        with open(transcript_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if '"name":"Agent"' not in line and '"name":"SendMessage"' not in line and "idle_notification" not in line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except Exception:
+                    continue
+                content = (d.get("message") or {}).get("content")
+                if d.get("type") == "user" and isinstance(content, str):
+                    # A teammate mails the lead an idle_notification each time its turn ends
+                    idle.update(re.findall(r'"type":"idle_notification","from":"([^"]+)"', content))
+                elif d.get("type") == "assistant" and isinstance(content, list):
+                    # Spawning or messaging a teammate puts it back to work
+                    for b in content:
+                        if b.get("type") != "tool_use":
+                            continue
+                        inp = b.get("input") or {}
+                        if b.get("name") == "Agent" and inp.get("name"):
+                            names[inp.get("description", "")] = inp["name"]
+                            idle.discard(inp["name"])
+                        elif b.get("name") == "SendMessage":
+                            idle.discard(inp.get("to"))
+    except Exception:
+        return set()
+    return {desc for desc, name in names.items() if name in idle}
+
+
 def _dispatch_claude_settle_daemon(
     tp: str,
     mark: str,
@@ -190,8 +223,13 @@ def handle_notify(
     #    so settle AGENT_NOTIFY_SETTLE_S (default 3s) first to avoid alert during turn overlap.
     # 2. Hold: While background work is in flight (.background_tasks non-empty), Claude wakes itself
     #    when it lands, so hold AGENT_NOTIFY_HOLD_S (default 1800s) unless the reply asks a question (?).
+    #    An idle teammate stays listed but never wakes Claude, so it doesn't hold.
     if not force and payload.get("hook_event_name") == "Stop" and not payload.get("settled"):
         bg_tasks = payload.get("background_tasks") or []
+        is_mate = lambda t: isinstance(t, dict) and t.get("type") == "teammate"
+        if any(map(is_mate, bg_tasks)):
+            idle = _idle_teammates(payload.get("transcript_path", ""))
+            bg_tasks = [t for t in bg_tasks if not is_mate(t) or t.get("description") not in idle]
         last_msg = payload.get("last_assistant_message") or ""
         last_para = re.split(r'\n\s*\n', last_msg.rstrip())[-1] if last_msg else ""
         asks_question = bool(re.search(r'\?(\s|$|[*_`)"”’\'])', last_para))

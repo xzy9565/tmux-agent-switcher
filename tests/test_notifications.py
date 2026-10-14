@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -203,6 +204,28 @@ class TestNotificationGatewayRegression(unittest.TestCase):
 
         self.assertEqual(len(self.tmux_calls), 0)
         self.assertEqual(len(self.popen_calls), 0)
+
+    def test_only_busy_teammates_hold_stop_alert(self):
+        # Teammates stay "running" in background_tasks after going idle. Only one put back to work holds the alert.
+        idle = '<teammate-message teammate_id="{0}">\n{{"type":"idle_notification","from":"{0}"}}\n</teammate-message>'
+        spawn = [{"type": "tool_use", "name": "Agent", "input": {"name": n, "description": "Plan " + n}} for n in "ab"]
+        resend = [{"type": "tool_use", "name": "SendMessage", "input": {"to": "b", "message": "send the report"}}]
+        stop = {"hook_event_name": "Stop", "background_tasks": [
+            {"id": "t" + n, "type": "teammate", "status": "running", "description": "Plan " + n} for n in "ab"]}
+        waits = []
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.dict(os.environ, {"CLAUDE_CODE_ENTRYPOINT": "cli", "AGENT_NOTIFY_SETTLE_S": "3", "AGENT_NOTIFY_HOLD_S": "1800"}), \
+             patch("tmux_agent_switcher.notifications.gateway._dispatch_claude_settle_daemon",
+                   side_effect=lambda tp, mark, wait_s, *a: waits.append(wait_s)):
+            stop["transcript_path"] = os.path.join(tmp, "t.jsonl")
+            for extra in ([], [("assistant", resend)]):
+                turns = [("assistant", spawn), ("user", idle.format("a")), ("user", idle.format("b"))] + extra
+                with open(stop["transcript_path"], "w") as f:
+                    # Claude Code writes compact JSON lines
+                    f.writelines(json.dumps({"type": r, "uuid": str(i), "message": {"content": c}}, separators=(",", ":")) + "\n" for i, (r, c) in enumerate(turns))
+                handle_notify("Claude", stdin_data=json.dumps(stop))
+
+        self.assertEqual(waits, [3.0, 1800.0])
 
     def test_explicit_force_still_notifies(self):
         mock_ctx = {"pane": "%45", "location": "misc:1.3", "focused": True, "pane_tty": "", "client_tty": ""}
