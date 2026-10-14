@@ -36,6 +36,21 @@ def handle_clear(pane_id: str) -> None:
         pass
 
 
+def handle_focus_out(pane_id: str) -> None:
+    """Raise the alert held back while you watched the pane, unless you replied before leaving."""
+    if not pane_id:
+        return
+    try:
+        raw = subprocess.run(["tmux", "show", "-pqv", "-t", pane_id, "@pane-alert-pending"], capture_output=True, text=True, timeout=0.2).stdout.strip()
+        subprocess.run(["tmux", "set", "-pu", "-t", pane_id, "@pane-alert-pending"], capture_output=True, timeout=0.2)
+        pending = json.loads(raw)
+    except Exception:
+        return
+    # A reply adds turns to the transcript, so a changed last uuid means it was answered
+    if _get_claude_last_turn_uuid(pending.get("transcript_path", "")) == pending.get("mark"):
+        handle_notify(pending.get("agent", ""), pending.get("message", ""), pane_id)
+
+
 def handle_hook_title(pane_id: str) -> None:
     """Deprecated: Pane title sniffing removed in favor of native agent hooks."""
     pass
@@ -351,8 +366,16 @@ def handle_notify(
     notify_mode = _tmux_option("@agent-switcher-notify", "none").lower()
 
     # Check if notification should be suppressed due to focus
-    # When focused, suppress in-tmux yellow border, bell, and desktop banner unless forced
+    # When focused, suppress in-tmux yellow border, bell, and desktop banner unless forced.
+    # Seeing a turn end is not answering it: leave the pane before replying and handle_focus_out raises the alert.
     if not force and is_focused:
+        mark = _get_claude_last_turn_uuid(payload.get("transcript_path", ""))
+        if pane and mark:
+            pending = {"transcript_path": payload["transcript_path"], "mark": mark, "agent": canon_name, "message": message}
+            try:
+                subprocess.run(["tmux", "set", "-p", "-t", pane, "@pane-alert-pending", json.dumps(pending)], capture_output=True, timeout=0.2)
+            except Exception:
+                pass
         return
 
     # Apply In-Tmux visual mark (Layer 2)

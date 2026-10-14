@@ -18,7 +18,7 @@ from .core.types import PreviewResult
 from .core.tmux import ProcessTree, list_all_panes, get_pane_context
 from .adapters.registry import ADAPTERS, resolve_adapter
 from .adapters.fallback import FallbackTuiAdapter
-from .notifications.gateway import handle_notify, handle_hook_title, handle_clear
+from .notifications.gateway import handle_notify, handle_hook_title, handle_clear, handle_focus_out
 from .notifications.context import resolve_notification_context
 
 
@@ -349,6 +349,15 @@ def cmd_clear(args: argparse.Namespace) -> None:
     sys.exit(0)
 
 
+def cmd_focus_out(args: argparse.Namespace) -> None:
+    try:
+        pane_id = args.pane_id or os.environ.get("TMUX_PANE", "")
+        handle_focus_out(pane_id)
+    except Exception:
+        pass
+    sys.exit(0)
+
+
 def cmd_context(args: argparse.Namespace) -> None:
     raw = read_stdin_payload()
     payload = {}
@@ -400,6 +409,9 @@ def main() -> None:
     p_clr = sub.add_parser("clear", help="Clear visual yellow border and input alerts on pane")
     p_clr.add_argument("pane_id", nargs="?", default="", help="Target tmux pane identifier (e.g. %%43)")
 
+    p_fo = sub.add_parser("focus-out", help="Raise an alert held back while the pane had focus")
+    p_fo.add_argument("pane_id", nargs="?", default="", help="Target tmux pane identifier (e.g. %%43)")
+
     p_ctx = sub.add_parser("context", help="Resolve notification context for an agent")
     p_ctx.add_argument("agent", nargs="?", default="", help="Agent name")
     p_ctx.add_argument("pane_id", nargs="?", default="", help="Target tmux pane identifier")
@@ -409,7 +421,7 @@ def main() -> None:
     dispatch = {
         "list": cmd_list, "preview": cmd_preview, "copy": cmd_copy,
         "run": cmd_run, "popup": cmd_popup, "notify": cmd_notify,
-        "hook-title": cmd_hook_title, "clear": cmd_clear, "context": cmd_context
+        "hook-title": cmd_hook_title, "clear": cmd_clear, "focus-out": cmd_focus_out, "context": cmd_context
     }
     if args.command in dispatch:
         dispatch[args.command](args)

@@ -13,7 +13,7 @@ from tmux_agent_switcher.notifications.context import (
     resolve_client_context,
     resolve_notification_context,
 )
-from tmux_agent_switcher.notifications.gateway import handle_notify
+from tmux_agent_switcher.notifications.gateway import handle_notify, handle_focus_out
 
 
 class TestPaneContextResolution(unittest.TestCase):
@@ -226,6 +226,45 @@ class TestNotificationGatewayRegression(unittest.TestCase):
                 handle_notify("Claude", stdin_data=json.dumps(stop))
 
         self.assertEqual(waits, [3.0, 1800.0])
+
+    def test_turn_seen_ending_alerts_once_you_leave_without_replying(self):
+        # A turn that ends while you watch is held in @pane-alert-pending, and leaving the pane raises it
+        held = []
+        def run(cmd, *args, **kwargs):
+            m = self._mock_run(cmd)
+            if cmd[:2] == ["tmux", "set"] and cmd[-2] == "@pane-alert-pending":
+                held.append(cmd[-1])
+            if cmd[:2] == ["tmux", "show"]:
+                m.stdout = held[-1]
+            return m
+        ctx = lambda focused: patch("tmux_agent_switcher.notifications.gateway.resolve_notification_context",
+                                    return_value={"pane": "%45", "location": "misc:1.3", "focused": focused, "pane_tty": "", "client_tty": ""})
+        marked = lambda: any("%45" in cmd and "fg=yellow" in cmd for cmd in self.tmux_calls)
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.dict(os.environ, {"CLAUDE_CODE_ENTRYPOINT": "cli"}), \
+             patch("tmux_agent_switcher.notifications.gateway._tmux_option", side_effect=lambda k, d: "all" if "notify" in k else "on"), \
+             patch("subprocess.run", side_effect=run), \
+             patch("subprocess.Popen", side_effect=self._mock_popen), \
+             patch("platform.system", return_value="Darwin"):
+            stop = {"hook_event_name": "Stop", "settled": True, "transcript_path": os.path.join(tmp, "t.jsonl"), "last_assistant_message": "Done"}
+            with open(stop["transcript_path"], "w") as f:
+                f.write('{"type":"user","uuid":"1"}\n{"type":"assistant","uuid":"2"}\n')
+            with ctx(True):
+                handle_notify("Claude", stdin_data=json.dumps(stop))
+            self.assertFalse(marked())
+            with ctx(False):
+                handle_focus_out("%45")
+            self.assertTrue(marked())
+
+            # A reply before leaving adds a turn, so leaving raises nothing
+            self.tmux_calls.clear()
+            with ctx(True):
+                handle_notify("Claude", stdin_data=json.dumps(stop))
+            with open(stop["transcript_path"], "a") as f:
+                f.write('{"type":"user","uuid":"3"}\n')
+            with ctx(False):
+                handle_focus_out("%45")
+            self.assertFalse(marked())
 
     def test_explicit_force_still_notifies(self):
         mock_ctx = {"pane": "%45", "location": "misc:1.3", "focused": True, "pane_tty": "", "client_tty": ""}

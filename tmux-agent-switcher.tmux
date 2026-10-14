@@ -59,9 +59,12 @@ main() {
     hook_enabled="$(get_tmux_option "@agent-switcher-hook" "on")"
 
     if [ "$hook_enabled" = "on" ]; then
-        tmux set-hook -g after-select-pane "run-shell '$BIN clear #{pane_id} >/dev/null 2>&1 || true'"
-        tmux set-hook -g session-window-changed "run-shell '$BIN clear #{pane_id} >/dev/null 2>&1 || true'"
-        tmux set-hook -g client-session-changed "run-shell '$BIN clear #{pane_id} >/dev/null 2>&1 || true'"
+        # A pane's alert mark clears when it gains focus, however you get there: select-pane, last-pane,
+        # the popup, a window/session switch, or back from another app. Needs focus-events, as does focus suppression.
+        tmux set -s focus-events on
+        tmux set-hook -g pane-focus-in "run-shell '$BIN clear #{pane_id} >/dev/null 2>&1 || true'"
+        # A turn that ended while you watched alerts once you leave without replying. The guard skips the spawn otherwise.
+        tmux set-hook -g pane-focus-out "if -F '#{@pane-alert-pending}' { run-shell -b '$BIN focus-out #{pane_id} >/dev/null 2>&1 || true' }"
     fi
 }
 
