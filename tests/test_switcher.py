@@ -246,6 +246,14 @@ class TestDenoiser(unittest.TestCase):
         self.assertEqual(denoise_terminal_text(raw), "❯ real terminal output line\ngit@github.com:xzy9565/tmux-agent-switcher.git\n"
                                                      "Resolution: 1920x1080, mask 0x10\n12:30 PM\n>= 5 items")
 
+    def test_a_shell_pane_preview_is_its_own_text_not_rendered_markdown(self):
+        # a diff's - lines became bullets, # comments headings, and ` and ** vanished
+        from unittest.mock import patch
+        screen = "$ git diff\n- old **bold** line\n+ new `code` line\n# a shell comment"
+        pane = PaneContext(pane_id="%9", pid="1", current_command="zsh", title="zsh")
+        with patch("subprocess.check_output", return_value=screen.encode()):
+            self.assertEqual(FallbackTuiAdapter().get_preview(pane, "", [], False, 80).content, screen)
+
 
 class TestDuckTurnsExtraction(unittest.TestCase):
     def test_extract_duck_turns(self):
