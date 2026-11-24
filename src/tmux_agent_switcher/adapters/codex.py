@@ -84,7 +84,7 @@ class CodexAdapter(BaseAgentAdapter):
                     conn_h.close()
 
                     raw_records = []
-                    for itype, ijson in items:
+                    for itype, ijson in reversed(items):  # query is newest-first; extract_duck_turns reads oldest-first
                         try:
                             d = json.loads(ijson)
                         except Exception:
