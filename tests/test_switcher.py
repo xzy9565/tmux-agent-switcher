@@ -359,6 +359,21 @@ class TestCursorAdapter(unittest.TestCase):
                 mtime = self.adapter.get_status(pane, "", "", {})[3]
         self.assertEqual(mtime, 1000)
 
+    def test_dialog_footers_and_conversation_words_are_not_running(self):
+        # "Esc to cancel" footers dialogs that wait on you; "Thinking"/"Generating" in conversation text is no spinner
+        import tempfile
+        from unittest.mock import patch, MagicMock
+        cases = [
+            ("[Plan] - ❓ Waiting for confirmation", "Ready to proceed?\n  Enter to continue • Esc to cancel\n", 0, False),
+            ("[Doc] - ✅ Ready", "Thinking about the design, I kept the old API.\nGenerating the report is next.\n  → Add a follow-up\n", 2, False),
+        ]
+        with tempfile.TemporaryDirectory() as home:
+            for title, screen, rank, running in cases:
+                pane = PaneContext(pane_id="%1", pid="101", current_command="cursor-agent", title=title, cwd="/tmp")
+                with patch.dict(os.environ, {"HOME": home}), patch("subprocess.run", return_value=MagicMock(stdout=screen)):
+                    got = self.adapter.get_status(pane, "", "", {})
+                self.assertEqual((got[2], got[5]), (rank, running), title)
+
     def test_cursor_screen_question_detected(self):
         from unittest.mock import patch, MagicMock
         pane = PaneContext(

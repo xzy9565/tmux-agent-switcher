@@ -847,9 +847,11 @@ class CursorAdapter(BaseAgentAdapter):
                 pass
 
             if screen:
-                # 0. Active execution / thinking state probe on screen (overrides delayed OSC title)
+                # 0. Active execution probe on screen (overrides delayed OSC title): only what the CLI draws while a turn
+                #    runs, a spinner before "Thinking" and the input's "ctrl+c to stop". Its "Esc to cancel" is the footer
+                #    of dialogs waiting on you, and it never prints "Generating", so those words are just conversation text.
                 running_on_screen = bool(re.search(
-                    r"(?:(?:[⠀-⣿⠋-]|\b)\s*Thinking\b|ctrl\+c\s+to\s+stop|Esc\s+to\s+cancel|\bGenerating\b|\bExecuting\s+command\b)",
+                    r"(?:[⠀-⣿]\s*Thinking\b|ctrl\+c\s+to\s+stop|\bExecuting\s+command\b)",
                     screen,
                     re.IGNORECASE
                 ))
