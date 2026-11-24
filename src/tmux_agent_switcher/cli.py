@@ -18,7 +18,7 @@ from .core.types import PreviewResult
 from .core.tmux import ProcessTree, list_all_panes, get_pane_context
 from .adapters.registry import ADAPTERS, resolve_adapter
 from .adapters.fallback import FallbackTuiAdapter
-from .adapters.codex import codex_db
+from .adapters.codex import codex_db, CODEX_ROOTS
 from .notifications.gateway import handle_notify, handle_hook_title, handle_clear, handle_focus_out
 from .notifications.context import resolve_notification_context
 
@@ -43,15 +43,21 @@ def index_shared_state() -> Dict[str, Any]:
         except Exception:
             pass
 
-    # Codex state
+    # Codex threads by exact name and by directory; oldest first so the newest thread wins a reused name
     codex_s = codex_db("state")
     if codex_s:
         try:
-            with sqlite3.connect(f"file:{codex_s}?mode=ro", uri=True) as conn:
-                for tid, name, u_ms, cwd in conn.execute("SELECT id, name, updated_at_ms, cwd FROM threads"):
-                    if name:
-                        state["codex_threads"][name.strip()] = (tid, (u_ms or 0) / 1000.0)
-                    state["codex_cwd"][cwd] = max(state["codex_cwd"].get(cwd, 0.0), (u_ms or 0) / 1000.0)
+            conn = sqlite3.connect(f"file:{codex_s}?mode=ro", uri=True)
+            try:
+                rows = conn.execute(
+                    "SELECT id, name, updated_at_ms, cwd FROM threads WHERE " + CODEX_ROOTS + " ORDER BY updated_at_ms"
+                ).fetchall()
+            finally:
+                conn.close()
+            for tid, name, u_ms, cwd in rows:
+                if name:
+                    state["codex_threads"][name.strip()] = (tid, (u_ms or 0) / 1000.0)
+                state["codex_cwd"][cwd] = max(state["codex_cwd"].get(cwd, 0.0), (u_ms or 0) / 1000.0)
         except Exception:
             pass
 

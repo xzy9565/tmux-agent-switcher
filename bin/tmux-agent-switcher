@@ -994,6 +994,9 @@ class CursorAdapter(BaseAgentAdapter):
 # --- OpenAI Codex Adapter (adapters/codex.py) ---
 """OpenAI Codex adapter."""
 
+# Threads a pane can be showing: interactive roots, not subagents ({"subagent": ...}), `codex exec` runs, or archived ones
+CODEX_ROOTS = "COALESCE(archived, 0) = 0 AND COALESCE(source, '') NOT LIKE '{%' AND COALESCE(source, '') <> 'exec'"
+
 def codex_db(kind: str) -> str:
     """Newest versioned Codex database of a kind (state_5.sqlite today), so a version bump can't silently strand us."""
     root = os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
@@ -1021,14 +1024,8 @@ class CodexAdapter(BaseAgentAdapter):
 
         spinning = bool(re.match(r"\s*[⠀-⣿]", pane.title))
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
-        clean_t = disp_t.split("|")[0].strip("[]* ")
-
-        mtime = 0.0
-        for k, (tid, u_time) in codex_threads.items():
-            if k == clean_t or k in clean_t or clean_t in k:
-                mtime = max(mtime, u_time)
-
-        mtime = mtime or codex_cwd.get(pane.cwd, 0.0)
+        # Codex titles a pane "<thread name> | <dir>": that exact name, else the newest thread in the pane's directory
+        mtime = codex_threads.get(disp_t.split(" | ")[0].strip(), (None, 0.0))[1] or codex_cwd.get(pane.cwd, 0.0)
 
         status = "💤 idle"
         rank = 2
@@ -1049,7 +1046,7 @@ class CodexAdapter(BaseAgentAdapter):
         preview_width: int
     ) -> Optional[PreviewResult]:
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
-        clean_t = disp_t.split("|")[0].strip("[]* ")
+        name = disp_t.split(" | ")[0].strip()
 
         s_db, h_db = codex_db("state"), codex_db("thread_history")
 
@@ -1057,8 +1054,9 @@ class CodexAdapter(BaseAgentAdapter):
             try:
                 conn_s = sqlite3.connect(f"file:{s_db}?mode=ro", uri=True)
                 row = conn_s.execute(
-                    'SELECT id, name FROM threads WHERE name = ? OR name LIKE ? OR ? LIKE "%" || name || "%" ORDER BY updated_at_ms DESC LIMIT 1',
-                    (clean_t, f"%{clean_t}%", clean_t)
+                    "SELECT id, name FROM threads WHERE " + CODEX_ROOTS + " AND (name = ? OR cwd = ?) "
+                    "ORDER BY name = ? DESC, updated_at_ms DESC LIMIT 1",
+                    (name, pane.cwd, name)
                 ).fetchone()
                 conn_s.close()
 
@@ -2575,15 +2573,21 @@ def index_shared_state() -> Dict[str, Any]:
         except Exception:
             pass
 
-    # Codex state
+    # Codex threads by exact name and by directory; oldest first so the newest thread wins a reused name
     codex_s = codex_db("state")
     if codex_s:
         try:
-            with sqlite3.connect(f"file:{codex_s}?mode=ro", uri=True) as conn:
-                for tid, name, u_ms, cwd in conn.execute("SELECT id, name, updated_at_ms, cwd FROM threads"):
-                    if name:
-                        state["codex_threads"][name.strip()] = (tid, (u_ms or 0) / 1000.0)
-                    state["codex_cwd"][cwd] = max(state["codex_cwd"].get(cwd, 0.0), (u_ms or 0) / 1000.0)
+            conn = sqlite3.connect(f"file:{codex_s}?mode=ro", uri=True)
+            try:
+                rows = conn.execute(
+                    "SELECT id, name, updated_at_ms, cwd FROM threads WHERE " + CODEX_ROOTS + " ORDER BY updated_at_ms"
+                ).fetchall()
+            finally:
+                conn.close()
+            for tid, name, u_ms, cwd in rows:
+                if name:
+                    state["codex_threads"][name.strip()] = (tid, (u_ms or 0) / 1000.0)
+                state["codex_cwd"][cwd] = max(state["codex_cwd"].get(cwd, 0.0), (u_ms or 0) / 1000.0)
         except Exception:
             pass
 

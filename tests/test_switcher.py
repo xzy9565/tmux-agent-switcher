@@ -477,6 +477,30 @@ class TestCodexAdapter(unittest.TestCase):
             content = self._preview(home, "Fix login")
         self.assertIn("Shipped.", content)
 
+    def test_thread_is_matched_by_exact_name_then_directory(self):
+        # Bracketed names, a name that prefixes another, a reused name, a spinner-only title, subagent and exec threads
+        import tempfile
+        from unittest.mock import patch
+        from tmux_agent_switcher import cli
+        threads = [("t1", "[Business] CheapSW", 1000, "/a", "vscode", 0),
+                   ("t2", "[Business] CheapSW 2", 2000, "/a", "cli", 0),
+                   ("t3", "[Business] CheapSW", 500, "/a", "cli", 0),
+                   ("t4", "Audit", 9000, "/a", '{"subagent":{"other":"guardian"}}', 0),
+                   ("t5", "Bench", 8000, "/a", "exec", 0)]
+        items = [("t1", "u", "cheap one"), ("t1", "a", "Reply for t1."), ("t2", "u", "cheap two"), ("t2", "a", "Reply for t2.")]
+        with tempfile.TemporaryDirectory() as home:
+            self._codex_home(home, threads, items)
+            with patch.dict(os.environ, {"HOME": home, "CODEX_HOME": ""}):
+                state = cli.index_shared_state()
+
+            def age(title):
+                pane = PaneContext(pane_id="%1", pid="1", current_command="codex", title=title, cwd="/a")
+                return CodexAdapter().get_status(pane, "", "codex", state)[3]
+            self.assertEqual(age("[Business] CheapSW | tracker"), 1.0)  # exact name, newest of its two threads
+            self.assertEqual(age("⠋"), 2.0)  # no name yet: newest interactive thread in the directory
+            self.assertIn("Reply for t1.", self._preview(home, "[Business] CheapSW | tracker", cwd="/a"))
+            self.assertIn("Reply for t2.", self._preview(home, "⠋", cwd="/a"))
+
 
 class TestOpenCodeAdapter(unittest.TestCase):
     """session_v2 / session_message schema: the legacy session/message/part tables stopped updating."""

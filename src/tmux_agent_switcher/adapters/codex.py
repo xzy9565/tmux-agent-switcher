@@ -13,6 +13,10 @@ from ..formatters.bubbles import format_turns
 from .base import BaseAgentAdapter, extract_duck_turns
 
 
+# Threads a pane can be showing: interactive roots, not subagents ({"subagent": ...}), `codex exec` runs, or archived ones
+CODEX_ROOTS = "COALESCE(archived, 0) = 0 AND COALESCE(source, '') NOT LIKE '{%' AND COALESCE(source, '') <> 'exec'"
+
+
 def codex_db(kind: str) -> str:
     """Newest versioned Codex database of a kind (state_5.sqlite today), so a version bump can't silently strand us."""
     root = os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
@@ -41,14 +45,8 @@ class CodexAdapter(BaseAgentAdapter):
 
         spinning = bool(re.match(r"\s*[⠀-⣿]", pane.title))
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
-        clean_t = disp_t.split("|")[0].strip("[]* ")
-
-        mtime = 0.0
-        for k, (tid, u_time) in codex_threads.items():
-            if k == clean_t or k in clean_t or clean_t in k:
-                mtime = max(mtime, u_time)
-
-        mtime = mtime or codex_cwd.get(pane.cwd, 0.0)
+        # Codex titles a pane "<thread name> | <dir>": that exact name, else the newest thread in the pane's directory
+        mtime = codex_threads.get(disp_t.split(" | ")[0].strip(), (None, 0.0))[1] or codex_cwd.get(pane.cwd, 0.0)
 
         status = "💤 idle"
         rank = 2
@@ -69,7 +67,7 @@ class CodexAdapter(BaseAgentAdapter):
         preview_width: int
     ) -> Optional[PreviewResult]:
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
-        clean_t = disp_t.split("|")[0].strip("[]* ")
+        name = disp_t.split(" | ")[0].strip()
 
         s_db, h_db = codex_db("state"), codex_db("thread_history")
 
@@ -77,8 +75,9 @@ class CodexAdapter(BaseAgentAdapter):
             try:
                 conn_s = sqlite3.connect(f"file:{s_db}?mode=ro", uri=True)
                 row = conn_s.execute(
-                    'SELECT id, name FROM threads WHERE name = ? OR name LIKE ? OR ? LIKE "%" || name || "%" ORDER BY updated_at_ms DESC LIMIT 1',
-                    (clean_t, f"%{clean_t}%", clean_t)
+                    "SELECT id, name FROM threads WHERE " + CODEX_ROOTS + " AND (name = ? OR cwd = ?) "
+                    "ORDER BY name = ? DESC, updated_at_ms DESC LIMIT 1",
+                    (name, pane.cwd, name)
                 ).fetchone()
                 conn_s.close()
 
