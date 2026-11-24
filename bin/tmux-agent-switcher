@@ -915,7 +915,7 @@ class CursorAdapter(BaseAgentAdapter):
         try:
             pane_pids = {str(pane.pid), *desc_pids}
             cursor_pids = []
-            ps_out = subprocess.run(["ps", "-eo", "pid,ppid,command"], capture_output=True).stdout.decode().splitlines()
+            ps_out = subprocess.run(["ps", "-eo", "pid,ppid,command"], capture_output=True).stdout.decode("utf-8", "replace").splitlines()
             for line in ps_out[1:]:
                 proc = line.strip().split(None, 2)
                 if len(proc) == 3 and proc[0] in pane_pids and re.search(r"(?:^|[ /])cursor-agent(?:\s|$)", proc[2]):
