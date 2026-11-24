@@ -238,6 +238,7 @@ def cmd_copy(args: argparse.Namespace) -> None:
         return
     env = os.environ.copy()
     env["FZF_PREVIEW_COLUMNS"] = ""
+    env["AGENT_SWITCHER_COPY"] = "1"  # agent dialogue comes back as its source text, not the rendered bubbles
 
     try:
         proc = subprocess.run(

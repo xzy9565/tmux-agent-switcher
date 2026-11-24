@@ -22,6 +22,10 @@ def format_turns(
     - Assistant turns: markdown rendered with tables and syntax highlighting.
     - Live indicator: indicates actively running turn if unanswered.
     """
+    if os.environ.get("AGENT_SWITCHER_COPY"):  # Ctrl-Y takes the dialogue as written: links, code indent and tables intact
+        return "\n\n".join(f"{'👤 YOU' if role == 'user' else '🤖 AGENT'}\n{t[role].strip()}"
+                           for t in turns for role in ("user", "assistant") if (t.get(role) or "").strip())
+
     if full_history is None:
         full_history = "full history" in os.environ.get("FZF_PREVIEW_LABEL", "")
 

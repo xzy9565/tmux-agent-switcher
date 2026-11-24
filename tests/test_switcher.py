@@ -163,6 +163,16 @@ class TestCopyCommand(unittest.TestCase):
         clip = [kw["input"].decode() for cmd, kw in self._copy(hostile) if cmd[:2] == ["tmux", "load-buffer"] or cmd == ["pbcopy"]]
         self.assertEqual(clip, ["run thisecho pwned curly link 31m\n\ttabend"] * 2)
 
+    def test_the_dialogue_is_copied_as_written_not_as_rendered(self):
+        # the rendered bubbles dropped every link URL and indented code by two spaces
+        from unittest.mock import patch
+        reply = "See [the docs](https://example.com/docs):\n\n```python\ndef f():\n    return 1\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |"
+        calls = self._copy("━━━ %9 · Claude ━━━\n\nanything")
+        self.assertEqual(next(kw["env"] for cmd, kw in calls if "preview" in cmd).get("AGENT_SWITCHER_COPY"), "1")
+        with patch.dict(os.environ, {"AGENT_SWITCHER_COPY": "1"}):
+            out = format_turns([{"user": "How?", "assistant": reply}], live=False, full_history=False)
+        self.assertEqual(out, f"👤 YOU\nHow?\n\n🤖 AGENT\n{reply}")
+
 
 class TestMarkdownFormatters(unittest.TestCase):
     def test_style_inline_code(self):
