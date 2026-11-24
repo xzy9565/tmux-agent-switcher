@@ -61,8 +61,9 @@ main() {
     if [ "$hook_enabled" = "on" ]; then
         # A pane's alert mark clears when it gains focus, however you get there: select-pane, last-pane,
         # the popup, a window/session switch, or back from another app. Needs focus-events, as does focus suppression.
+        # The guard skips the spawn on the far more common focus change with nothing to clear (notify sets the mark).
         tmux set -s focus-events on
-        tmux set-hook -g pane-focus-in "run-shell '$BIN clear #{pane_id} >/dev/null 2>&1 || true'"
+        tmux set-hook -g pane-focus-in "if -F '#{@pane-needs-input}' { run-shell '$BIN clear #{pane_id} >/dev/null 2>&1 || true' }"
         # A turn that ended while you watched alerts once you leave without replying. The guard skips the spawn otherwise.
         tmux set-hook -g pane-focus-out "if -F '#{@pane-alert-pending}' { run-shell -b '$BIN focus-out #{pane_id} >/dev/null 2>&1 || true' }"
     fi
