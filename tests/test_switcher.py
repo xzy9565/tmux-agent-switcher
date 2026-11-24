@@ -56,6 +56,31 @@ class TestProcessListing(unittest.TestCase):
         self.assertEqual(_tmux_cmd(["printf", "a\\351b"]), "a\ufffdb")
 
 
+class TestListCommand(unittest.TestCase):
+    def test_one_failing_adapter_does_not_empty_the_list(self):
+        # e.g. OMP stat()s a session file deleted after indexing; every other pane must still be listed
+        import io, time
+        from contextlib import redirect_stdout
+        from unittest.mock import patch, MagicMock
+        from tmux_agent_switcher import cli
+        panes = [PaneContext(pane_id="misc:1.1", pid="10", current_command="omp", title="OMP work"),
+                 PaneContext(pane_id="misc:1.2", pid="11", current_command="zsh", title="zsh", cwd="/tmp")]
+        broken = MagicMock(name="omp")
+        broken.name = "omp"
+        broken.get_status.side_effect = FileNotFoundError("session vanished")
+        tree = MagicMock(tree={}, cmd_of={}, my_pid="1")
+        tree.get_descendants.return_value = tree.get_agent_heads.return_value = ""
+        out = io.StringIO()
+        with patch.object(cli, "list_all_panes", return_value=panes), \
+             patch.object(cli, "ProcessTree", return_value=tree), \
+             patch.object(cli, "index_shared_state", return_value={"now": time.time(), "host": "h", "home": "/h"}), \
+             patch.object(cli, "resolve_adapter", side_effect=[broken, FallbackTuiAdapter()]), \
+             redirect_stdout(out):
+            cli.cmd_list(None)
+        self.assertIn("misc:1.2", out.getvalue())
+        self.assertIn("⚠ omp FileNotFoundError", out.getvalue())
+
+
 class TestMarkdownFormatters(unittest.TestCase):
     def test_style_inline_code(self):
         styled = style_inline("Run `ls -la` now")

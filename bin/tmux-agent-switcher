@@ -2615,7 +2615,13 @@ def cmd_list(args: argparse.Namespace) -> None:
         desc_cmd = tree.get_descendants(pane.pid)
         heads = tree.get_agent_heads(pane.pid)
         adapter = resolve_adapter(pane, desc_cmd, heads)
-        harness, h_col, rank, mtime, title, running = adapter.get_status(pane, desc_cmd, heads, state)
+        try:
+            harness, h_col, rank, mtime, title, running = adapter.get_status(pane, desc_cmd, heads, state)
+        except Exception as e:
+            # A broken adapter must not empty the whole switcher: list the pane plainly and say why
+            failed, adapter = adapter.name, FallbackTuiAdapter()
+            harness, h_col, rank, mtime, title, running = adapter.get_status(pane, desc_cmd, heads, state)
+            title = f"⚠ {failed} {type(e).__name__} · {title}"
 
         is_current = (pane.window_active == "1" and pane.pane_active == "1" and pane.session_attached != "0")
         is_monitor = (adapter.name == "system-monitor")
