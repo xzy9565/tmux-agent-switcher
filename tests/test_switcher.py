@@ -145,6 +145,23 @@ class TestRunCommand(unittest.TestCase):
             with open(calls) as f:
                 self.assertEqual(f.read(), "switch-client|-t|my proj:1.2|")
 
+    def test_ctrl_x_kills_only_after_a_yes_naming_what_runs_there_now(self):
+        # one keystroke killed the pane, a running agent included
+        import argparse
+        from unittest.mock import patch
+        from tmux_agent_switcher import cli
+        with patch.object(cli.subprocess, "run") as run:
+            cli.cmd_run(argparse.Namespace(preview_width="58%"))
+        self.assertIn(" kill {1})+reload(", run.call_args[0][0][2])
+        pane = PaneContext(pane_id="misc:1.2", pid="9", current_command="claude.exe", title="Fix build")
+        for answer, killed in (("y", True), ("", False), ("n", False), (EOFError(), False)):
+            with patch.object(cli, "get_pane_context", return_value=pane), \
+                 patch("builtins.input", side_effect=[answer]) as ask, patch.object(cli.subprocess, "run") as run:
+                cli.cmd_kill(argparse.Namespace(pane_id="misc:1.2"))
+            self.assertIn("misc:1.2 (claude.exe · Fix build)", ask.call_args[0][0])
+            self.assertEqual(run.call_args[0][0] if run.called else None,
+                             ["tmux", "kill-pane", "-t", "misc:1.2"] if killed else None, repr(answer))
+
 
 class TestPreviewCommand(unittest.TestCase):
     def test_agent_running_as_the_pane_process_itself(self):

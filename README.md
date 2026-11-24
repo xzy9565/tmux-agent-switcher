@@ -220,7 +220,7 @@ bind Space display-popup -w 88% -h 82% -E "tmux-agent-switcher run"
 | `Alt-↑` / `Alt-↓` | Preview | Jump directly to preview top / bottom |
 | `Ctrl-Y` | Clipboard | Copy the dialogue as Markdown source (a shell pane: its screen text) to the system clipboard & tmux buffer / OSC 52 |
 | `Alt-Y` | Clipboard | Copy the pane's tmux target (e.g. `misc:1.12`) |
-| `Ctrl-X` | Process | Kill the selected pane, without confirmation, and refresh the switcher list |
+| `Ctrl-X` | Process | Kill the selected pane after a `y/N` prompt naming what runs in it now, then refresh the switcher list |
 | `Esc` / `Ctrl-C` | Popup | Dismiss popup window |
 
 ---

@@ -280,6 +280,19 @@ def cmd_copy(args: argparse.Namespace) -> None:
         pass
 
 
+def cmd_kill(args: argparse.Namespace) -> None:
+    """Ctrl-X: kill a pane once confirmed, naming what runs in it now rather than what the list row showed."""
+    pane = get_pane_context(args.pane_id)
+    if not pane:
+        return
+    try:
+        answer = input(f"Kill {args.pane_id} ({pane.current_command} · {pane.title})? [y/N] ")
+    except (EOFError, KeyboardInterrupt):
+        return
+    if answer.strip().lower() in ("y", "yes"):
+        subprocess.run(["tmux", "kill-pane", "-t", args.pane_id])
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     """Run interactive fzf switcher inside the popup."""
     self_path = os.path.abspath(sys.argv[0])
@@ -300,7 +313,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         f"--bind 'alt-up:preview-top,alt-down:preview-bottom' "
         f"--bind 'ctrl-y:execute-silent({self_path} copy {{1}})' "
         f"--bind 'alt-y:execute-silent(echo -n {{1}} | tmux load-buffer -w -; tmux display-message \"📋 Copied {{1}}\")' "
-        f"--bind 'ctrl-x:execute(tmux kill-pane -t {{1}})+reload({self_path} list)' "
+        f"--bind 'ctrl-x:execute({self_path} kill {{1}})+reload({self_path} list)' "
         f"| cut -f1 | while IFS= read -r t; do tmux switch-client -t \"$t\"; done"
     )
 
@@ -414,6 +427,9 @@ def main() -> None:
     p_copy = sub.add_parser("copy", help="Copy unwrapped dialogue to clipboard via OSC 52")
     p_copy.add_argument("pane_id", help="Target tmux pane identifier (e.g. %%43)")
 
+    p_kill = sub.add_parser("kill", help="Kill a pane after a y/N prompt naming what runs in it (Ctrl-X)")
+    p_kill.add_argument("pane_id", help="Target tmux pane identifier (e.g. %%43)")
+
     p_run = sub.add_parser("run", help="Run interactive fzf switcher pipeline")
     p_run.add_argument("--preview-width", default="58%", help="Preview panel width (default: 58%%)")
 
@@ -444,7 +460,7 @@ def main() -> None:
 
     args = parser.parse_args()
     dispatch = {
-        "list": cmd_list, "preview": cmd_preview, "copy": cmd_copy,
+        "list": cmd_list, "preview": cmd_preview, "copy": cmd_copy, "kill": cmd_kill,
         "run": cmd_run, "popup": cmd_popup, "notify": cmd_notify,
         "hook-title": cmd_hook_title, "clear": cmd_clear, "focus-out": cmd_focus_out, "context": cmd_context
     }
