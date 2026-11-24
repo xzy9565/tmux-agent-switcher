@@ -80,6 +80,34 @@ class TestListCommand(unittest.TestCase):
         self.assertIn("misc:1.2", out.getvalue())
         self.assertIn("⚠ omp FileNotFoundError", out.getvalue())
 
+    def test_background_work_keeps_the_alert_and_a_running_turn_clears_it(self):
+        # Main thread idle with a background shell: the alert raised by notify must survive opening the switcher
+        import io, re, time
+        from contextlib import redirect_stdout
+        from unittest.mock import patch, MagicMock
+        from tmux_agent_switcher import cli
+        now = time.time()
+        panes = [PaneContext(pane_id="misc:3.2", pid="10", current_command="claude.exe", title="bg shell", pane_needs_input="1"),
+                 PaneContext(pane_id="misc:3.3", pid="11", current_command="claude.exe", title="new turn", pane_needs_input="1")]
+        def adapter(running):
+            a = MagicMock()
+            a.name = "claude"
+            a.get_status.return_value = ("🟠 Claude", "", 1, now, "t", running)
+            return a
+        tree = MagicMock(tree={}, cmd_of={}, my_pid="1")
+        tree.get_descendants.return_value = tree.get_agent_heads.return_value = ""
+        out, tmux = io.StringIO(), MagicMock()
+        with patch.object(cli, "list_all_panes", return_value=panes), \
+             patch.object(cli, "ProcessTree", return_value=tree), \
+             patch.object(cli, "index_shared_state", return_value={"now": now, "host": "h", "home": "/h"}), \
+             patch.object(cli, "resolve_adapter", side_effect=[adapter("🐚 shell"), adapter(True)]), \
+             patch.object(cli.subprocess, "run", tmux), redirect_stdout(out):
+            cli.cmd_list(None)
+        rows = {r.split()[0]: r for r in re.sub(r"\x1b\[[0-9;]*m", "", out.getvalue()).splitlines()}
+        self.assertIn("🔔 input", rows["misc:3.2"])
+        cleared = {c.args[0][4] for c in tmux.call_args_list}
+        self.assertEqual(cleared, {"misc:3.3"})
+
 
 class TestPreviewCommand(unittest.TestCase):
     def test_agent_running_as_the_pane_process_itself(self):

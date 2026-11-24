@@ -116,10 +116,12 @@ def cmd_list(args: argparse.Namespace) -> None:
         if is_monitor:
             rank, age_str = 3, "LIVE"
         else:
-            if not running and (rank == 0 or pane.pane_needs_input == "1" or (pane.bell_flag == "1" and pane.pane_active == "1")):
+            # Background work (🐚 shell, 🤖 subagent) leaves the main thread waiting on you: only a running turn (True)
+            # outranks an alert, and only it proves the alert stale
+            if running is not True and (rank == 0 or pane.pane_needs_input == "1" or (pane.bell_flag == "1" and pane.pane_active == "1")):
                 status, rank = "🔔 input", 0
 
-            if running and pane.pane_needs_input == "1":
+            if running is True and pane.pane_needs_input == "1":
                 try:
                     subprocess.run(["tmux", "set", "-pu", "-t", pane.pane_id, "@pane-needs-input"], capture_output=True)
                     subprocess.run(["tmux", "set", "-pu", "-t", pane.pane_id, "pane-border-style"], capture_output=True)
