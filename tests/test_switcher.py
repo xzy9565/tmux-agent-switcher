@@ -231,20 +231,20 @@ class TestMarkdownFormatters(unittest.TestCase):
 
 
 class TestDenoiser(unittest.TestCase):
-    def test_denoise_terminal_text(self):
+    def test_agent_chrome_goes_and_real_output_stays_as_is(self):
         raw = (
             "Token Monitor | 100K / 200K\n"
-            "user@hostname\n"
-            "❯ real terminal output line\n"
+            "  ⏵⏵ auto mode on (shift+tab to cycle)\n"
             "Transfer-Encoding: chunked\n"
-            "another content line\n"
+            "❯ real terminal output line\n"
+            # each of these was dropped or rewritten as noise
+            "git@github.com:xzy9565/tmux-agent-switcher.git\n"
+            "Resolution: 1920x1080, mask 0x10\n"
+            "12:30 PM\n"
+            ">= 5 items\n"
         )
-        denoised = denoise_terminal_text(raw)
-        self.assertNotIn("Token Monitor", denoised)
-        self.assertNotIn("user@hostname", denoised)
-        self.assertNotIn("chunked", denoised)
-        self.assertIn("real terminal output line", denoised)
-        self.assertIn("another content line", denoised)
+        self.assertEqual(denoise_terminal_text(raw), "❯ real terminal output line\ngit@github.com:xzy9565/tmux-agent-switcher.git\n"
+                                                     "Resolution: 1920x1080, mask 0x10\n12:30 PM\n>= 5 items")
 
 
 class TestDuckTurnsExtraction(unittest.TestCase):
