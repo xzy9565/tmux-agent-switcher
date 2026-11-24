@@ -715,6 +715,29 @@ class TestClaudeAdapter(unittest.TestCase):
         self.addCleanup(os.unlink, f.name)
         return f.name
 
+    def test_transcripts_of_every_claude_profile_are_indexed(self):
+        # A profile run through CLAUDE_CONFIG_DIR=~/.claude-personal keeps both sessions/ and projects/ there
+        import tempfile
+        from unittest.mock import patch
+        from tmux_agent_switcher import cli
+        sid = "5e55e55e-0000-4000-8000-000000000002"
+        with tempfile.TemporaryDirectory() as home:
+            profile = os.path.join(home, ".claude-personal")
+            os.makedirs(os.path.join(profile, "projects", "-tmp"))
+            os.makedirs(os.path.join(profile, "sessions"))
+            with open(os.path.join(profile, "projects", "-tmp", f"{sid}.jsonl"), "w") as f:
+                f.write(json.dumps({"type": "user", "timestamp": "2026-11-23T10:00:00Z",
+                                    "message": {"role": "user", "content": "hi"}}) + "\n")
+            with open(os.path.join(profile, "sessions", "101.json"), "w") as f:
+                json.dump({"pid": 101, "sessionId": sid, "status": "idle"}, f)
+            with patch.dict(os.environ, {"HOME": home}):
+                state = cli.index_shared_state()
+                state.update({"tree": {}, "my_pid": "1"})
+                pane = PaneContext(pane_id="%1", pid="101", current_command="claude", title="t")
+                mtime = self.adapter.get_status(pane, "", "claude", state)[3]
+        self.assertIn(sid, state["claude_idx"])
+        self.assertGreater(mtime, 0)  # unindexed, the age was blank
+
     def test_own_process_session_beats_a_stale_tag(self):
         # The tag is rewritten only when a turn ends; after /clear or /resume the process's session file is current
         pane = PaneContext(pane_id="%1", pid="101", current_command="claude", title="t", claude_sid="old-sess")

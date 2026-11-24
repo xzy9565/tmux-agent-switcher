@@ -19,6 +19,7 @@ from .core.tmux import ProcessTree, list_all_panes, get_pane_context
 from .adapters.registry import ADAPTERS, resolve_adapter
 from .adapters.fallback import FallbackTuiAdapter
 from .adapters.codex import codex_db, CODEX_ROOTS
+from .adapters.claude import CLAUDE_PROJECTS
 from .notifications.gateway import handle_notify, handle_hook_title, handle_clear, handle_focus_out
 from .notifications.context import resolve_notification_context
 
@@ -79,7 +80,7 @@ def index_shared_state() -> Dict[str, Any]:
             pass
 
     # Claude indices
-    claude_paths = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
+    claude_paths = glob.glob(os.path.expanduser(f"{CLAUDE_PROJECTS}/*.jsonl"))
     state["claude_idx"] = {os.path.basename(p)[:-6]: p for p in claude_paths}
     state["cc_sessions"] = {}
     for f in glob.glob(os.path.expanduser("~/.claude*/sessions/*.json")):

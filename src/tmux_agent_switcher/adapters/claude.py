@@ -13,6 +13,9 @@ from ..core.config import C_CLAUDE
 from ..formatters.bubbles import format_turns
 from .base import BaseAgentAdapter, read_tail_lines, extract_duck_turns, live_tag, pane_pids
 
+# Every Claude config dir keeps its own projects/: ~/.claude and profiles run via CLAUDE_CONFIG_DIR=~/.claude-<name>
+CLAUDE_PROJECTS = "~/.claude*/projects/*"
+
 
 def claude_state(fpath: str, max_bytes: int = 250000) -> Tuple[float, bool]:
     """
@@ -232,7 +235,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         preview_width: int
     ) -> Optional[PreviewResult]:
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
-        claude_paths = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
+        claude_paths = glob.glob(os.path.expanduser(f"{CLAUDE_PROJECTS}/*.jsonl"))
         claude_idx = {os.path.basename(p)[:-6]: p for p in claude_paths}
 
         cc_sessions = {}
@@ -250,7 +253,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         if active_sid and active_sid in claude_idx:
             filepath = claude_idx[active_sid]
         elif pane.claude_sid:
-            matches = glob.glob(os.path.expanduser(f"~/.claude/projects/*/{pane.claude_sid}.jsonl"))
+            matches = glob.glob(os.path.expanduser(f"{CLAUDE_PROJECTS}/{pane.claude_sid}.jsonl"))
             if matches:
                 filepath = matches[0]
 
