@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from ..core.types import PaneContext, PreviewResult
 from ..core.config import C_CLAUDE
 from ..formatters.bubbles import format_turns
-from .base import BaseAgentAdapter, read_tail_lines, extract_duck_turns, live_tag
+from .base import BaseAgentAdapter, read_tail_lines, extract_duck_turns, live_tag, pane_pids
 
 
 def claude_state(fpath: str, max_bytes: int = 250000) -> Tuple[float, bool]:
@@ -182,17 +182,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         claude_idx = shared_state.get("claude_idx", {})
         cc_status = shared_state.get("cc_status", {})
         cc_sessions = shared_state.get("cc_sessions", {})
-        tree = shared_state.get("tree", {})
-        my_pid = shared_state.get("my_pid", "")
-
-        desc_pids = [str(pane.pid)]
-        stack = [str(pane.pid)]
-        while stack:
-            curr = stack.pop()
-            for cp, _ in tree.get(curr, []):
-                if cp != my_pid and cp not in desc_pids:
-                    desc_pids.append(cp)
-                    stack.append(cp)
+        desc_pids = pane_pids(pane, shared_state)
 
         active_sid, st = find_active_session_info(pane, claude_idx, cc_sessions, desc_pids)
 

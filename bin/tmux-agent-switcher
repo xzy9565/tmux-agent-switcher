@@ -561,6 +561,17 @@ def format_turns(
 # --- Agent Adapter Interface & Duck Parsing (adapters/base.py) ---
 """Base interface and parsing utilities for AI Agent adapters."""
 
+def pane_pids(pane: PaneContext, shared_state: Dict[str, Any]) -> List[str]:
+    """The pane's own pid and all its descendants, from the process tree list builds once."""
+    tree, my_pid = shared_state.get("tree", {}), shared_state.get("my_pid", "")
+    pids, stack = [str(pane.pid)], [str(pane.pid)]
+    while stack:
+        for cp, _ in tree.get(stack.pop(), []):
+            if cp != my_pid and cp not in pids:
+                pids.append(cp)
+                stack.append(cp)
+    return pids
+
 def live_tag(pane: PaneContext, tag: str) -> bool:
     """Session tags are never cleared, so one only counts while something other than a shell runs in the pane."""
     return bool(tag) and pane.current_command not in SHELLS
@@ -1307,17 +1318,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         claude_idx = shared_state.get("claude_idx", {})
         cc_status = shared_state.get("cc_status", {})
         cc_sessions = shared_state.get("cc_sessions", {})
-        tree = shared_state.get("tree", {})
-        my_pid = shared_state.get("my_pid", "")
-
-        desc_pids = [str(pane.pid)]
-        stack = [str(pane.pid)]
-        while stack:
-            curr = stack.pop()
-            for cp, _ in tree.get(curr, []):
-                if cp != my_pid and cp not in desc_pids:
-                    desc_pids.append(cp)
-                    stack.append(cp)
+        desc_pids = pane_pids(pane, shared_state)
 
         active_sid, st = find_active_session_info(pane, claude_idx, cc_sessions, desc_pids)
 
@@ -1412,6 +1413,22 @@ class ClaudeAdapter(BaseAgentAdapter):
 # --- xAI Grok Adapter (adapters/grok.py) ---
 """xAI Grok adapter."""
 
+def _session_history(pane: PaneContext, pids: List[str]) -> str:
+    """This pane's chat_history.jsonl: the session its grok process registered, else the newest in the pane's directory."""
+    root = os.path.expanduser("~/.grok/sessions")
+    try:
+        with open(os.path.expanduser("~/.grok/active_sessions.json")) as f:
+            for s in json.load(f):
+                if str(s.get("pid")) in pids and s.get("session_id") and s.get("cwd"):
+                    return os.path.join(root, urllib.parse.quote(s["cwd"], safe=""), s["session_id"], "chat_history.jsonl")
+    except Exception:
+        pass
+    try:
+        files = glob.glob(os.path.join(root, urllib.parse.quote(pane.cwd, safe=""), "*", "chat_history.jsonl"))
+        return max(files, key=os.path.getmtime, default="")
+    except OSError:
+        return ""
+
 class GrokAdapter(BaseAgentAdapter):
     name = "grok"
     display_name = "⚡ Grok"
@@ -1427,8 +1444,8 @@ class GrokAdapter(BaseAgentAdapter):
         heads: str,
         shared_state: Dict[str, Any]
     ) -> Tuple[str, str, int, float, str, bool]:
-        g_files = glob.glob(os.path.expanduser("~/.grok/sessions/**/chat_history.jsonl"), recursive=True)
-        mtime = max((get_real_dialogue_time(f) for f in g_files), default=0.0)
+        hf = _session_history(pane, pane_pids(pane, shared_state))
+        mtime = get_real_dialogue_time(hf) if hf else 0.0
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
         return self.display_name, self.color, 2, mtime, disp_t, False
 
@@ -1441,34 +1458,16 @@ class GrokAdapter(BaseAgentAdapter):
         preview_width: int
     ) -> Optional[PreviewResult]:
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
-        grok_act = os.path.expanduser("~/.grok/active_sessions.json")
-        sid, cwd = None, None
-
-        if os.path.exists(grok_act):
-            try:
-                with open(grok_act) as f:
-                    active = json.load(f)
-                for s in active:
-                    if str(s.get("pid")) in desc_pids:
-                        sid, cwd = s.get("session_id"), s.get("cwd")
-                        break
-                if not sid and active:
-                    sid, cwd = active[-1].get("session_id"), active[-1].get("cwd")
-            except Exception:
-                pass
-
-        if sid and cwd:
-            cwd_enc = urllib.parse.quote(cwd, safe="")
-            hf = os.path.expanduser(f"~/.grok/sessions/{cwd_enc}/{sid}/chat_history.jsonl")
-            if os.path.exists(hf):
-                lines = read_tail_lines(hf, full=full_history)
-                turns = extract_duck_turns(lines, full=full_history)
-                if turns:
-                    content = format_turns(turns, live=True, full_history=full_history, preview_width=preview_width)
-                    return PreviewResult(
-                        source_label=f"{self.display_name} · {disp_t}",
-                        content=content
-                    )
+        hf = _session_history(pane, desc_pids)
+        if hf and os.path.exists(hf):
+            lines = read_tail_lines(hf, full=full_history)
+            turns = extract_duck_turns(lines, full=full_history)
+            if turns:
+                content = format_turns(turns, live=True, full_history=full_history, preview_width=preview_width)
+                return PreviewResult(
+                    source_label=f"{self.display_name} · {disp_t}",
+                    content=content
+                )
         return None
 
 

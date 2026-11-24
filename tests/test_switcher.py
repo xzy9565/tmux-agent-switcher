@@ -556,6 +556,33 @@ class TestOpenCodeAdapter(unittest.TestCase):
         self.assertEqual((rank, mtime, running), (1, 5.0, True))
 
 
+class TestGrokAdapter(unittest.TestCase):
+    def test_each_pane_gets_its_own_session(self):
+        # Status took the newest session of any directory for every pane; preview fell back to another pane's session
+        import tempfile, urllib.parse
+        from unittest.mock import patch
+        from tmux_agent_switcher.adapters.grok import GrokAdapter
+        with tempfile.TemporaryDirectory() as home:
+            def session(cwd, sid, reply, mtime):
+                d = os.path.join(home, ".grok", "sessions", urllib.parse.quote(cwd, safe=""), sid)
+                os.makedirs(d)
+                path = os.path.join(d, "chat_history.jsonl")
+                with open(path, "w") as f:  # real records carry no timestamps, so age is the file's mtime
+                    f.write(json.dumps({"type": "user", "content": [{"type": "text", "text": "hi"}]}) + "\n")
+                    f.write(json.dumps({"type": "assistant", "content": reply}) + "\n")
+                os.utime(path, (mtime, mtime))
+            session("/a", "s1", "Reply in a.", 1000)
+            session("/b", "s2", "Reply in b.", 2000)
+            with open(os.path.join(home, ".grok", "active_sessions.json"), "w") as f:
+                json.dump([{"pid": 999, "session_id": "s2", "cwd": "/b"}], f)  # another pane's grok
+            pane = PaneContext(pane_id="%1", pid="10", current_command="grok", title="grok", cwd="/a")
+            with patch.dict(os.environ, {"HOME": home}):
+                age = GrokAdapter().get_status(pane, "", "grok", {"tree": {}, "my_pid": "1"})[3]
+                content = GrokAdapter().get_preview(pane, "", ["10"], False, 0).content
+        self.assertEqual(age, 1000)
+        self.assertIn("Reply in a.", content)
+
+
 class TestCommandCodeAdapter(unittest.TestCase):
     def test_session_file_is_chosen_over_its_checkpoints_sibling(self):
         # Every session sits next to <sid>.checkpoints.jsonl, which holds no dialogue

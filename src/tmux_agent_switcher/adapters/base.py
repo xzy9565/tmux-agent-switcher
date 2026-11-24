@@ -9,6 +9,18 @@ from ..core.types import PaneContext, PreviewResult
 from ..core.config import C_DIM, SHELLS
 
 
+def pane_pids(pane: PaneContext, shared_state: Dict[str, Any]) -> List[str]:
+    """The pane's own pid and all its descendants, from the process tree list builds once."""
+    tree, my_pid = shared_state.get("tree", {}), shared_state.get("my_pid", "")
+    pids, stack = [str(pane.pid)], [str(pane.pid)]
+    while stack:
+        for cp, _ in tree.get(stack.pop(), []):
+            if cp != my_pid and cp not in pids:
+                pids.append(cp)
+                stack.append(cp)
+    return pids
+
+
 def live_tag(pane: PaneContext, tag: str) -> bool:
     """Session tags are never cleared, so one only counts while something other than a shell runs in the pane."""
     return bool(tag) and pane.current_command not in SHELLS
