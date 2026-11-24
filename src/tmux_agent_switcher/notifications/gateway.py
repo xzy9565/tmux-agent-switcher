@@ -9,6 +9,7 @@ import sys
 import time
 from typing import Dict, Any, Optional
 from .context import resolve_notification_context
+from ..adapters.base import read_tail_lines  # bounded tail reads: transcripts reach hundreds of MB
 
 
 def _tmux_option(option: str, default: str) -> str:
@@ -65,8 +66,7 @@ def _check_agy_waiting(conv_id: str) -> bool:
     if not os.path.exists(agy_tpath):
         return False
     try:
-        with open(agy_tpath, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()[-80:]
+        lines = read_tail_lines(agy_tpath)[-80:]
         running_tasks = set()
         finished_tasks = set()
         pending_timer = False
@@ -104,8 +104,7 @@ def _get_claude_last_turn_uuid(transcript_path: str) -> Optional[str]:
     if not transcript_path or not os.path.isfile(transcript_path):
         return None
     try:
-        with open(transcript_path, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()[-200:]
+        lines = read_tail_lines(transcript_path)[-200:]
         for line in reversed(lines):
             try:
                 d = json.loads(line)
@@ -152,54 +151,34 @@ def _idle_teammates(transcript_path: str) -> set:
 
 
 def _dispatch_claude_settle_daemon(
-    tp: str,
     mark: str,
     wait_s: float,
     payload: Dict[str, Any],
     agent_name: str,
     message: str,
     target_pane: str,
-    force: bool,
 ) -> None:
-    """Spawn detached background daemon to re-dispatch notification after settle/hold wait."""
+    """Spawn a detached sleeper that re-runs notify after the settle/hold wait. notify itself drops the alert
+    if the transcript moved past `mark` meanwhile, so the uuid check lives in one place."""
     self_cmd = sys.argv[0] if sys.argv and os.path.isfile(sys.argv[0]) else "tmux-agent-switcher"
-    sub_payload = dict(payload)
-    sub_payload["settled"] = True
-
+    cmd = [self_cmd, "notify", agent_name, message, target_pane]  # all three positionals, so none shifts into another
+    data = json.dumps(dict(payload, settled=True, settle_mark=mark)).encode("utf-8")
     daemon_py = (
-        "import json, os, subprocess, sys, time\n"
-        f"time.sleep({wait_s})\n"
-        "curr = None\n"
-        "try:\n"
-        f"    with open({repr(tp)}, 'r', encoding='utf-8', errors='ignore') as f:\n"
-        "        lines = f.readlines()[-200:]\n"
-        "    for l in reversed(lines):\n"
-        "        try:\n"
-        "            d = json.loads(l)\n"
-        "            if d.get('type') in ('user', 'assistant') and d.get('uuid'):\n"
-        "                curr = str(d['uuid'])\n"
-        "                break\n"
-        "        except Exception:\n"
-        "            pass\n"
-        "except Exception:\n"
-        "    pass\n"
-        f"if curr == {repr(mark)}:\n"
-        f"    cmd = [{repr(self_cmd)}, 'notify']\n"
-        + (f"    cmd.append({repr(agent_name)})\n" if agent_name else "")
-        + (f"    cmd.append({repr(message)})\n" if message else "")
-        + (f"    cmd.append({repr(target_pane)})\n" if target_pane else "")
-        + ("    cmd.append('--force')\n" if force else "")
-        + "    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
-        f"    p.communicate(input=json.dumps({repr(sub_payload)}).encode('utf-8'))\n"
+        "import subprocess, sys, time\n"
+        "data = sys.stdin.buffer.read()\n"  # the payload arrives on stdin, so its size is not bound by ARG_MAX
+        f"time.sleep({float(wait_s)!r})\n"
+        f"subprocess.run({cmd!r}, input=data, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
     )
     try:
-        subprocess.Popen(
+        proc = subprocess.Popen(
             [sys.executable, "-c", daemon_py],
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
+        proc.stdin.write(data)
+        proc.stdin.close()
     except Exception:
         pass
 
@@ -241,6 +220,11 @@ def handle_notify(
     # 2. Hold: While background work is in flight (.background_tasks non-empty), Claude wakes itself
     #    when it lands, so hold AGENT_NOTIFY_HOLD_S (default 1800s) unless the reply asks a question (?).
     #    An idle teammate stays listed but never wakes Claude, so it doesn't hold.
+    # The settle/hold sleeper woke up: a turn that started since it was spawned makes this alert stale
+    if payload.get("settled") and payload.get("settle_mark"):
+        if _get_claude_last_turn_uuid(payload.get("transcript_path", "")) != payload["settle_mark"]:
+            return
+
     if not force and payload.get("hook_event_name") == "Stop" and not payload.get("settled"):
         bg_tasks = payload.get("background_tasks") or []
         is_mate = lambda t: isinstance(t, dict) and t.get("type") == "teammate"
@@ -261,9 +245,7 @@ def handle_notify(
         if tp and os.path.isfile(tp):
             mark = _get_claude_last_turn_uuid(tp)
             if mark and wait_s > 0:
-                _dispatch_claude_settle_daemon(
-                    tp, mark, wait_s, payload, agent_name, message, target_pane, force
-                )
+                _dispatch_claude_settle_daemon(mark, wait_s, payload, agent_name, message, target_pane)
                 return
         if held:
             return
@@ -272,9 +254,7 @@ def handle_notify(
     transcript_path = payload.get("transcript_path", "")
     if transcript_path and os.path.isfile(transcript_path):
         try:
-            with open(transcript_path, "r", encoding="utf-8", errors="ignore") as f:
-                tail = f.readlines()[-30:]
-            for line in reversed(tail):
+            for line in reversed(read_tail_lines(transcript_path)[-30:]):
                 if "thread_goal_updated" in line:
                     d = json.loads(line)
                     if d.get("payload", {}).get("goal", {}).get("status") == "active":
@@ -314,12 +294,11 @@ def handle_notify(
                 agy_tpath = os.path.expanduser(f"~/.gemini/antigravity-cli/brain/{conv_id}/.system_generated/logs/transcript.jsonl")
                 if os.path.exists(agy_tpath):
                     try:
-                        with open(agy_tpath, "r", encoding="utf-8", errors="ignore") as f:
-                            for l in reversed(f.readlines()[-60:]):
-                                d = json.loads(l)
-                                if d.get("type") == "PLANNER_RESPONSE" and d.get("content"):
-                                    last_msg = str(d["content"]).strip()
-                                    break
+                        for l in reversed(read_tail_lines(agy_tpath)[-60:]):
+                            d = json.loads(l)
+                            if d.get("type") == "PLANNER_RESPONSE" and d.get("content"):
+                                last_msg = str(d["content"]).strip()
+                                break
                     except Exception:
                         pass
             if last_msg:

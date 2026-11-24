@@ -853,8 +853,8 @@ class TestNotificationSubsystem(unittest.TestCase):
                 handle_notify("Claude", "Done", target_pane="%1", stdin_data=json.dumps(payload))
                 mock_dispatch.assert_called_once()
                 args, _ = mock_dispatch.call_args
-                self.assertEqual(args[1], "a-2")  # mark
-                self.assertEqual(args[2], 1800.0) # wait_s (held for 30m)
+                self.assertEqual(args[0], "a-2")  # mark
+                self.assertEqual(args[1], 1800.0) # wait_s (held for 30m)
         finally:
             os.unlink(f_path)
 
@@ -878,10 +878,48 @@ class TestNotificationSubsystem(unittest.TestCase):
                 handle_notify("Claude", "Done", target_pane="%1", stdin_data=json.dumps(payload))
                 mock_dispatch.assert_called_once()
                 args, _ = mock_dispatch.call_args
-                self.assertEqual(args[1], "a-2") # mark
-                self.assertEqual(args[2], 3.0)   # wait_s (settle 3s only, not held for 30m!)
+                self.assertEqual(args[0], "a-2") # mark
+                self.assertEqual(args[1], 3.0)   # wait_s (settle 3s only, not held for 30m!)
         finally:
             os.unlink(f_path)
+
+    def test_settle_sleeper_reruns_notify_with_its_payload_on_stdin(self):
+        # Runs the generated sleeper for real: argv keeps all three positionals, the payload carries settle_mark
+        import sys, tempfile, time
+        from unittest.mock import patch
+        from tmux_agent_switcher.notifications import gateway
+        with tempfile.TemporaryDirectory() as d:
+            fake = os.path.join(d, "tmux-agent-switcher")
+            with open(fake, "w") as f:
+                f.write(f"#!/bin/sh\nprintf '%s|' \"$@\" > '{d}/args.tmp' && mv '{d}/args.tmp' '{d}/args'\ncat > '{d}/stdin'\n")
+            os.chmod(fake, 0o755)
+            with patch.object(sys, "argv", [fake]):
+                gateway._dispatch_claude_settle_daemon("u-9", 0.01, {"hook_event_name": "Stop"}, "", "Done", "%3")
+            deadline = time.time() + 10
+            while not os.path.exists(os.path.join(d, "args")) and time.time() < deadline:
+                time.sleep(0.05)
+            time.sleep(0.2)
+            with open(os.path.join(d, "args")) as f:
+                args = f.read()
+            with open(os.path.join(d, "stdin")) as f:
+                sent = json.loads(f.read())
+        self.assertEqual(args, "notify||Done|%3|")
+        self.assertEqual((sent["settled"], sent["settle_mark"]), (True, "u-9"))
+
+    def test_settled_alert_is_dropped_once_a_newer_turn_started(self):
+        import tempfile
+        from unittest.mock import patch
+        from tmux_agent_switcher.notifications import gateway
+        with tempfile.TemporaryDirectory() as d:
+            tp = os.path.join(d, "t.jsonl")
+            with open(tp, "w") as f:
+                f.write('{"type":"user","uuid":"u-1"}\n{"type":"assistant","uuid":"u-2"}\n')
+            with patch.object(gateway, "resolve_notification_context", return_value={"pane": "", "location": ""}) as resolve, \
+                 patch.object(gateway, "_tmux_option", return_value="none"):
+                for mark in ("u-2", "u-1"):  # unchanged transcript notifies; a newer turn since the mark does not
+                    gateway.handle_notify(stdin_data=json.dumps(
+                        {"hook_event_name": "Stop", "settled": True, "settle_mark": mark, "transcript_path": tp}))
+        self.assertEqual(resolve.call_count, 1)
 
     def test_notify_tolerates_unexpected_payload_shapes(self):
         # A non-object payload or a bare-string permission_request used to raise and exit 1 inside the hook

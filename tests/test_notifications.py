@@ -216,7 +216,7 @@ class TestNotificationGatewayRegression(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, \
              patch.dict(os.environ, {"CLAUDE_CODE_ENTRYPOINT": "cli", "AGENT_NOTIFY_SETTLE_S": "3", "AGENT_NOTIFY_HOLD_S": "1800"}), \
              patch("tmux_agent_switcher.notifications.gateway._dispatch_claude_settle_daemon",
-                   side_effect=lambda tp, mark, wait_s, *a: waits.append(wait_s)):
+                   side_effect=lambda mark, wait_s, *a: waits.append(wait_s)):
             stop["transcript_path"] = os.path.join(tmp, "t.jsonl")
             for extra in ([], [("assistant", resend)]):
                 turns = [("assistant", spawn), ("user", idle.format("a")), ("user", idle.format("b"))] + extra
