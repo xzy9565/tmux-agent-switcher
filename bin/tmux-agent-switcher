@@ -2718,7 +2718,7 @@ def cmd_preview(args: argparse.Namespace) -> None:
 
     tree = ProcessTree(tty=pane.tty if pane.tty else None)
     desc_cmd = tree.get_descendants(pane.pid)
-    desc_pids = tree.get_descendant_pids(pane.pid)
+    desc_pids = [pane.pid] + tree.get_descendant_pids(pane.pid)  # as in list: the agent can be the pane's own process
     heads = tree.get_agent_heads(pane.pid)
 
     full = "full history" in os.environ.get("FZF_PREVIEW_LABEL", "")

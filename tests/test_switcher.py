@@ -81,6 +81,37 @@ class TestListCommand(unittest.TestCase):
         self.assertIn("⚠ omp FileNotFoundError", out.getvalue())
 
 
+class TestPreviewCommand(unittest.TestCase):
+    def test_agent_running_as_the_pane_process_itself(self):
+        # `tmux new-window claude` makes claude the pane's own pid: list always counted it, preview did not
+        import argparse, io, tempfile
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        from tmux_agent_switcher import cli
+        sid = "5e55e55e-0000-4000-8000-000000000001"
+        with tempfile.TemporaryDirectory() as home:
+            for d in ("projects/-tmp", "sessions"):
+                os.makedirs(os.path.join(home, ".claude", d))
+            with open(os.path.join(home, ".claude", "projects", "-tmp", f"{sid}.jsonl"), "w") as f:
+                for role, content in (("user", "hello root"), ("assistant", [{"type": "text", "text": "Root reply."}])):
+                    f.write(json.dumps({"type": role, "timestamp": "2026-11-23T10:00:00Z",
+                                        "message": {"role": role, "content": content}}) + "\n")
+            with open(os.path.join(home, ".claude", "sessions", "900001.json"), "w") as f:
+                json.dump({"pid": 900001, "sessionId": sid, "status": "idle"}, f)
+            bin_dir = os.path.join(home, "bin")
+            os.makedirs(bin_dir)
+            for name, body in (("ps", "printf '  PID  PPID COMMAND\\n900001     1 claude\\n'"), ("tmux", "exit 0")):
+                with open(os.path.join(bin_dir, name), "w") as f:
+                    f.write(f"#!/bin/sh\n{body}\n")
+                os.chmod(os.path.join(bin_dir, name), 0o755)
+            pane = PaneContext(pane_id="%9", pid="900001", current_command="claude.exe", title="Root Claude")
+            out = io.StringIO()
+            with patch.dict(os.environ, {"HOME": home, "PATH": bin_dir + os.pathsep + os.environ.get("PATH", "")}), \
+                 patch.object(cli, "get_pane_context", return_value=pane), redirect_stdout(out):
+                cli.cmd_preview(argparse.Namespace(pane_id="%9"))
+        self.assertIn("Root reply.", out.getvalue())
+
+
 class TestMarkdownFormatters(unittest.TestCase):
     def test_style_inline_code(self):
         styled = style_inline("Run `ls -la` now")
