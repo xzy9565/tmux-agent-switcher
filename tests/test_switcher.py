@@ -342,6 +342,23 @@ class TestCursorAdapter(unittest.TestCase):
         self.assertEqual(rank, 0)
         self.assertEqual(title, "[Whisper]")
 
+    def test_project_age_uses_cursors_own_slug(self):
+        # Cursor turns every run of non-alphanumerics into one dash: /tmp/my_proj.v2 -> tmp-my-proj-v2
+        import tempfile
+        from unittest.mock import patch, MagicMock
+        with tempfile.TemporaryDirectory() as home:
+            for slug, sid, mtime in (("tmp-my-proj-v2", "s1", 1000), ("elsewhere", "s2", 2000)):
+                d = os.path.join(home, ".cursor", "projects", slug, "agent-transcripts", sid)
+                os.makedirs(d)
+                path = os.path.join(d, f"{sid}.jsonl")
+                open(path, "w").close()
+                os.utime(path, (mtime, mtime))
+            pane = PaneContext(pane_id="%1", pid="101", current_command="cursor-agent",
+                               title="[Proj] - ✅ Ready", cwd="/tmp/my_proj.v2")
+            with patch.dict(os.environ, {"HOME": home}), patch("subprocess.run", return_value=MagicMock(stdout="")):
+                mtime = self.adapter.get_status(pane, "", "", {})[3]
+        self.assertEqual(mtime, 1000)
+
     def test_cursor_screen_question_detected(self):
         from unittest.mock import patch, MagicMock
         pane = PaneContext(

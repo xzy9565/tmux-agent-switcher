@@ -14,6 +14,11 @@ from ..formatters.bubbles import format_turns
 from .base import BaseAgentAdapter, read_tail_lines, extract_duck_turns
 
 
+def project_slug(cwd: str) -> str:
+    """Cursor's ~/.cursor/projects/<slug> name for a workspace: every run of non-alphanumerics becomes one dash."""
+    return re.sub(r"[^A-Za-z0-9]+", "-", cwd).strip("-")
+
+
 class CursorAdapter(BaseAgentAdapter):
     name = "cursor"
     display_name = "⚡ Cursor"
@@ -36,7 +41,7 @@ class CursorAdapter(BaseAgentAdapter):
         # Prefer project-specific mtime if pane.cwd matches a known project
         proj_transcripts: List[str] = []
         if pane.cwd:
-            encoded = pane.cwd.strip("/").replace("/", "-")
+            encoded = project_slug(pane.cwd)
             proj_transcripts = glob.glob(os.path.expanduser(f"~/.cursor/projects/{encoded}/agent-transcripts/*/*.jsonl"))
             proj_logs = glob.glob(os.path.expanduser(f"~/.cursor/projects/{encoded}/**/worker.log"), recursive=True)
             if proj_transcripts or proj_logs:
@@ -187,7 +192,7 @@ class CursorAdapter(BaseAgentAdapter):
                     pass
 
             if not sid and pane.cwd:
-                encoded = pane.cwd.strip("/").replace("/", "-")
+                encoded = project_slug(pane.cwd)
                 proj_matches = glob.glob(os.path.expanduser(f"~/.cursor/projects/{encoded}/agent-transcripts/*/*.jsonl"))
                 if proj_matches:
                     latest_proj = max(proj_matches, key=os.path.getmtime)
