@@ -96,7 +96,10 @@ def extract_duck_turns(lines: List[str], full: bool = False) -> List[Dict[str, s
             d = json.loads(l)
         except Exception:
             continue
-        if not isinstance(d, dict) or d.get("isMeta") or d.get("isCompactSummary"):
+        # api-request-blob: Claude's copies of past API requests; task-notification: system-generated user turns
+        if (not isinstance(d, dict) or d.get("isMeta") or d.get("isCompactSummary")
+                or d.get("type") == "api-request-blob"
+                or (isinstance(d.get("origin"), dict) and d["origin"].get("kind") == "task-notification")):
             continue
 
         msg = d.get("message") if isinstance(d.get("message"), dict) else d

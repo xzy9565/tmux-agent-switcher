@@ -119,6 +119,17 @@ class TestDuckTurnsExtraction(unittest.TestCase):
         self.assertEqual(turns[0]["user"], "How do I fix this?")
         self.assertEqual(turns[0]["assistant"], "Here is the fix.")
 
+    def test_claude_request_copies_and_task_notifications_are_not_dialogue(self):
+        # Shapes taken from real Claude transcripts: request copies duplicate turns, notifications pose as YOU
+        lines = [json.dumps(r) for r in (
+            {"type": "user", "message": {"role": "user", "content": "fix the bug"}},
+            {"type": "api-request-blob", "message": {"role": "user", "content": "fix the bug"}},
+            {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Fixed."}]}},
+            {"type": "user", "origin": {"kind": "task-notification"},
+             "message": {"role": "user", "content": "<task-notification><task-id>b1</task-id><status>completed</status></task-notification>"}},
+        )]
+        self.assertEqual(extract_duck_turns(lines), [{"user": "fix the bug", "assistant": "Fixed."}])
+
     def test_format_turns(self):
         turns = [{"user": "Hello agent", "assistant": "Hello user"}]
         bubble = format_turns(turns, live=True, full_history=False, preview_width=80)
