@@ -78,6 +78,13 @@ class TestPaneContextResolution(unittest.TestCase):
         self.meta["source"] = "exec"
         self.assertIsNone(self.resolve(inherited="%45"))
 
+    def test_thread_resumed_from_another_client_still_finds_its_pane(self):
+        # source is where the thread was created: one started in VS Code and resumed in this pane is this pane's
+        self.meta["source"] = "vscode"
+        self.assertEqual(self.resolve()["pane"], "%45")
+        self.meta["source"] = '{"subagent":{"other":"guardian"}}'
+        self.assertIsNone(self.resolve())
+
     def test_non_interactive_codex_and_wrong_tty_are_not_clients(self):
         self.procs["200"] = ("100", "test-current", "/bin/codex review")
         self.procs["201"] = ("200", "other-tty", "/bin/codex resume")

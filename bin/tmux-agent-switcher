@@ -2043,7 +2043,10 @@ def resolve_agent_pane(
     agent_lower = agent.lower()
     if agent_lower == "codex":
         sid = payload.get("session_id") or payload.get("thread-id") or ""
-        if not sid or metadata.get("source") not in (None, "cli"):
+        # source records where a thread was created, and a VS Code thread can be resumed in a pane: only
+        # non-interactive `codex exec` runs and subagent threads ({"subagent": ...}) never own one
+        source = metadata.get("source") or ""
+        if not sid or source == "exec" or source.startswith("{"):
             return None
         named = []
         for pane in live:
