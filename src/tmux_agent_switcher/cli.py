@@ -371,7 +371,9 @@ def cmd_context(args: argparse.Namespace) -> None:
         try:
             payload = json.loads(raw)
         except Exception:
-            payload = {}
+            pass
+    if not isinstance(payload, dict):
+        payload = {}
     ctx = resolve_notification_context(
         agent_name=args.agent or "",
         payload=payload,

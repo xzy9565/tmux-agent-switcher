@@ -227,6 +227,8 @@ def handle_notify(
         try:
             payload = json.loads(stdin_data)
         except Exception:
+            pass
+        if not isinstance(payload, dict):  # hooks send a JSON object; anything else carries nothing we read
             payload = {}
 
     # Headless SDK suppression
@@ -292,11 +294,11 @@ def handle_notify(
     # Extract message details if empty
     if not message:
         if payload.get("tool_name") or payload.get("permission_request") or payload.get("permission"):
-            perm = payload.get("permission")
+            perm, req = payload.get("permission"), payload.get("permission_request")
             perm_name = perm.get("type") if isinstance(perm, dict) else perm
             tool_name = (
                 payload.get("tool_name")
-                or payload.get("permission_request", {}).get("tool")
+                or (req.get("tool") if isinstance(req, dict) else req)
                 or perm_name
                 or "Tool"
             )

@@ -607,6 +607,31 @@ class TestNotificationSubsystem(unittest.TestCase):
         finally:
             os.unlink(f_path)
 
+    def test_notify_tolerates_unexpected_payload_shapes(self):
+        # A non-object payload or a bare-string permission_request used to raise and exit 1 inside the hook
+        from unittest.mock import patch, MagicMock
+        from tmux_agent_switcher.notifications import gateway
+        opts = {"@agent-switcher-notify": "desktop", "@agent-switcher-mark-input": "off"}
+        popen = MagicMock()
+        with patch.object(gateway, "resolve_notification_context", return_value={"pane": "", "location": "", "local_client": True}), \
+             patch.object(gateway, "_tmux_option", side_effect=lambda o, d: opts.get(o, d)), \
+             patch.object(gateway.platform, "system", return_value="Darwin"), \
+             patch.object(gateway.subprocess, "Popen", popen):
+            gateway.handle_notify(stdin_data="[]")
+            gateway.handle_notify(stdin_data='{"permission_request": "Bash"}')
+        self.assertIn("Approval needed: Bash", popen.call_args[0][0][2])
+
+    def test_context_tolerates_non_object_payload(self):
+        import argparse, io
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        from tmux_agent_switcher import cli
+        with patch.object(cli, "read_stdin_payload", return_value="[]"), \
+             patch.object(cli, "resolve_notification_context", return_value={}) as resolve, \
+             redirect_stdout(io.StringIO()):
+            cli.cmd_context(argparse.Namespace(agent="Codex", pane_id="", tag_session=True))
+        self.assertEqual(resolve.call_args.kwargs["payload"], {})
+
 
 if __name__ == "__main__":
     unittest.main()
