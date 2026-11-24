@@ -576,19 +576,24 @@ def live_tag(pane: PaneContext, tag: str) -> bool:
     """Session tags are never cleared, so one only counts while something other than a shell runs in the pane."""
     return bool(tag) and pane.current_command not in SHELLS
 
+# ponytail: "full" history reads at most the last 32 MB: whole-file reads of 300 MB transcripts took ~2 GB of RAM.
+# Only the very largest sessions lose their oldest turns; stream turns forward if that history is ever needed.
+FULL_HISTORY_MAX_BYTES = 32 << 20
+
 def read_tail_lines(filepath: str, max_bytes: int = 800000, full: bool = False) -> List[str]:
     """
-    Read tail lines from file without loading entire multi-gigabyte logs into RAM.
-    If full is True, reads the entire file.
+    Read a file's last lines without loading multi-hundred-MB logs whole.
+    full=True widens the window to FULL_HISTORY_MAX_BYTES (the whole file for all but the largest sessions).
     """
     if not filepath or not os.path.exists(filepath):
         return []
     try:
         size = os.path.getsize(filepath)
-        start = 0 if full else max(0, size - max_bytes)
+        start = max(0, size - (FULL_HISTORY_MAX_BYTES if full else max_bytes))
         with open(filepath, "rb") as f:
             f.seek(start)
-            raw = f.read().decode("utf-8", errors="ignore").strip().split("\n")
+            # Decode per line: one CJK character or emoji would make a single whole-window string 4 bytes per char
+            raw = [l.decode("utf-8", errors="ignore") for l in f.read().strip().split(b"\n")]
             return raw[1:] if start and len(raw) > 1 else raw
     except Exception:
         return []

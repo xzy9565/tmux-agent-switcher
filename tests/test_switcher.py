@@ -204,6 +204,20 @@ class TestDuckTurnsExtraction(unittest.TestCase):
         self.assertEqual(turns[0]["user"], "How do I fix this?")
         self.assertEqual(turns[0]["assistant"], "Here is the fix.")
 
+    def test_full_history_reads_a_bounded_tail(self):
+        # Whole-file reads of 300 MB transcripts took ~2 GB of RAM in the preview popup
+        import tempfile
+        from unittest.mock import patch
+        from tmux_agent_switcher.adapters import base
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+            f.write("".join(json.dumps({"n": i, "text": "你好" * 5}, ensure_ascii=False) + "\n" for i in range(50)))
+        self.addCleanup(os.unlink, f.name)
+        with patch.object(base, "FULL_HISTORY_MAX_BYTES", 300):
+            lines = base.read_tail_lines(f.name, full=True)
+        self.assertEqual(json.loads(lines[-1]), {"n": 49, "text": "你好" * 5})
+        self.assertLess(len(lines), 50)
+        self.assertTrue(all(json.loads(l) for l in lines))  # the partial first line is dropped
+
     def test_claude_request_copies_and_task_notifications_are_not_dialogue(self):
         # Shapes taken from real Claude transcripts: request copies duplicate turns, notifications pose as YOU
         lines = [json.dumps(r) for r in (
