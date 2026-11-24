@@ -122,7 +122,7 @@ def cmd_list(args: argparse.Namespace) -> None:
         status = "💤 idle"
 
         if running and (now - mtime < 1800):
-            if isinstance(running, str) and running in ("🤖 subagent", "🐚 shell"):
+            if running == "🐚 shell":
                 status = running
             else:
                 status = "⚡ run"
@@ -131,7 +131,7 @@ def cmd_list(args: argparse.Namespace) -> None:
         if is_monitor:
             rank, age_str = 3, "LIVE"
         else:
-            # Background work (🐚 shell, 🤖 subagent) leaves the main thread waiting on you: only a running turn (True)
+            # Background work (🐚 shell) leaves the main thread waiting on you: only a running turn (True)
             # outranks an alert, and only it proves the alert stale
             if running is not True and (rank == 0 or pane.pane_needs_input == "1" or (pane.bell_flag == "1" and pane.pane_active == "1")):
                 status, rank = "🔔 input", 0
@@ -158,8 +158,7 @@ def cmd_list(args: argparse.Namespace) -> None:
                 age_str = " - "
 
         s_col = {
-            "🔔 input": C_RED_BOLD, "⚡ run": C_GREEN_BOLD,
-            "🤖 subagent": C_CYAN_BOLD, "🐚 shell": C_CYAN_BOLD
+            "🔔 input": C_RED_BOLD, "⚡ run": C_GREEN_BOLD, "🐚 shell": C_CYAN_BOLD
         }.get(status, C_DIM)
 
         mark = f"{C_GREEN_BOLD}▶{C_RESET}" if is_current else " "

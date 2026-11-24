@@ -205,14 +205,9 @@ class ClaudeAdapter(BaseAgentAdapter):
                     break
 
         if st:
-            if st in ("busy", "agents", "shell"):
+            if st in ("busy", "shell"):  # the CLI only ever writes busy, shell, idle or waiting
                 rank = 1
-                if st == "agents":
-                    running = "🤖 subagent"
-                elif st == "shell":
-                    running = "🐚 shell"
-                else:
-                    running = True
+                running = "🐚 shell" if st == "shell" else True
                 if not mtime or (time.time() - mtime > 1800):
                     mtime = time.time()
             elif st == "waiting":

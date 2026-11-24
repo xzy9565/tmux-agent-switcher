@@ -672,24 +672,6 @@ class TestClaudeAdapter(unittest.TestCase):
         self.assertTrue(running)
         self.assertEqual(rank, 1)
 
-    def test_claude_subagent_status(self):
-        pane = PaneContext(
-            pane_id="%1", pid="101", current_command="claude",
-            title="[Whisper Keyboard]",
-            bell_flag="0", pane_active="1", window_active="1", session_attached="1",
-            cwd="/tmp", tty="", claude_sid="sess-1"
-        )
-        shared_state = {
-            "claude_idx": {},
-            "cc_status": {"101": "agents"},
-            "cc_sessions": {},
-            "tree": {},
-            "my_pid": "999"
-        }
-        name, color, rank, mtime, title, running = self.adapter.get_status(pane, "", "", shared_state)
-        self.assertEqual(running, "🤖 subagent")
-        self.assertEqual(rank, 1)
-
     def test_claude_waiting_status(self):
         pane = PaneContext(
             pane_id="%1", pid="101", current_command="claude",
