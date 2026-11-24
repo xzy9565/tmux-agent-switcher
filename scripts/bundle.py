@@ -57,7 +57,8 @@ def clean_source(content: str) -> str:
     return cleaned.strip()
 
 
-def build_bundle() -> None:
+def bundle_source() -> str:
+    """The standalone script for the current src, verified to parse."""
     header = """#!/usr/bin/env python3
 # ==============================================================================
 # tmux-agent-switcher — Unified AI Agent Multiplexing & Dialogue Preview Center
@@ -105,9 +106,12 @@ from typing import Dict, List, Optional, Tuple, Any, Set
 
     full_script = "\n\n".join(parts) + "\n"
     ast.parse(full_script)
+    return full_script
 
+
+def build_bundle() -> None:
     with open(TARGET_BIN, "w", encoding="utf-8") as f:
-        f.write(full_script)
+        f.write(bundle_source())
 
     os.chmod(TARGET_BIN, 0o755)
     print(f"✅ Successfully bundled & verified standalone executable: {TARGET_BIN}")

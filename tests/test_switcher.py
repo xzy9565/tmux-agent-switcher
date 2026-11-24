@@ -1042,5 +1042,54 @@ class TestNotificationSubsystem(unittest.TestCase):
         self.assertEqual(resolve.call_args.kwargs["payload"], {})
 
 
+class TestBundle(unittest.TestCase):
+    """bin/tmux-agent-switcher is what actually runs (the TPM plugin, the curl install); the rest of the suite tests src."""
+
+    def setUp(self):
+        import importlib.util
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        spec = importlib.util.spec_from_file_location("bundle", os.path.join(root, "scripts", "bundle.py"))
+        self.bundle = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.bundle)
+        self.bin = os.path.join(root, "bin", "tmux-agent-switcher")
+
+    def test_committed_bin_is_the_bundle_of_src(self):
+        with open(self.bin, encoding="utf-8") as f:
+            self.assertEqual(f.read(), self.bundle.bundle_source(), "bin/ is stale: run python3 scripts/bundle.py")
+
+    def test_every_module_is_bundled_and_no_two_define_one_name(self):
+        # the bundle is one namespace: a name defined twice silently resolves to the later module everywhere
+        import ast, collections
+        src = self.bundle.SRC_DIR
+        modules = {os.path.relpath(os.path.join(d, f), src) for d, _, fs in os.walk(src)
+                   for f in fs if f.endswith(".py") and f not in ("__init__.py", "__main__.py")}
+        self.assertEqual(modules, {rel for rel, _ in self.bundle.MODULES_IN_ORDER})
+        owners = collections.defaultdict(set)
+        for rel in modules:
+            with open(os.path.join(src, rel), encoding="utf-8") as f:
+                for node in ast.parse(f.read()).body:
+                    if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                        owners[node.name].add(rel)
+                    elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                        for t in getattr(node, "targets", [getattr(node, "target", None)]):
+                            if isinstance(t, ast.Name):
+                                owners[t.id].add(rel)
+        self.assertEqual({n: m for n, m in owners.items() if len(m) > 1}, {})
+
+    def test_the_bundled_cli_lists_a_pane(self):
+        # the shipped script end to end (dispatch, shared index, every adapter's detect) against a fake one-pane tmux
+        import subprocess, sys, tempfile
+        with tempfile.TemporaryDirectory() as home:
+            os.makedirs(os.path.join(home, "bin"))
+            with open(os.path.join(home, "bin", "tmux"), "w") as f:
+                f.write("#!/bin/sh\n[ \"$1\" = list-panes ] && printf "
+                        "'t:1.1\\t999999\\tzsh\\tzsh\\t0\\t1\\t1\\t\\t\\t\\t\\t/tmp\\t1\\t\\t\\t\\t80\\t24\\n'\nexit 0\n")
+            os.chmod(os.path.join(home, "bin", "tmux"), 0o755)
+            env = dict(os.environ, HOME=home, PATH=os.path.join(home, "bin") + os.pathsep + os.environ.get("PATH", ""))
+            r = subprocess.run([sys.executable, self.bin, "list"], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("t:1.1", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
