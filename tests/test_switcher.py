@@ -143,7 +143,8 @@ class TestPreviewCommand(unittest.TestCase):
 class TestCopyCommand(unittest.TestCase):
     """Ctrl-Y: what reaches the tmux buffer and the system clipboard."""
 
-    def _copy(self, preview_out):
+    def _copy(self, preview_out, broken=()):
+        """Run cmd_copy with every subprocess faked; tools named in broken fail (load-buffer) or are missing."""
         import argparse, subprocess
         from unittest.mock import patch
         from tmux_agent_switcher import cli
@@ -151,10 +152,24 @@ class TestCopyCommand(unittest.TestCase):
 
         def run(cmd, **kw):
             calls.append((cmd, kw))
-            return subprocess.CompletedProcess(cmd, 0, stdout=preview_out if "preview" in cmd else "")
-        with patch.object(cli.subprocess, "run", side_effect=run):
+            if cmd[0] in broken:
+                raise FileNotFoundError(cmd[0])
+            return subprocess.CompletedProcess(cmd, 1 if cmd[1:2] == ["load-buffer"] and "load-buffer" in broken else 0,
+                                               stdout=preview_out if "preview" in cmd else "")
+        with patch.object(cli.subprocess, "run", side_effect=run), \
+             patch.object(cli.subprocess, "check_output", return_value=b""):
             cli.cmd_copy(argparse.Namespace(pane_id="%9"))
         return calls
+
+    def test_the_toast_says_where_the_text_went_or_that_it_did_not(self):
+        def toast(preview_out, broken=()):
+            return [cmd[2] for cmd, _ in self._copy(preview_out, broken) if cmd[:2] == ["tmux", "display-message"]]
+        text = "━━━ %9 · Claude ━━━\n\nhello"
+        self.assertEqual(toast(text), ["📋 Copied %9 to system clipboard"])
+        self.assertEqual(toast(text, {"pbcopy", "wl-copy", "xclip"}), ["📋 Copied %9 to tmux buffer · no pbcopy, wl-copy or xclip"])
+        self.assertEqual(toast(text, {"load-buffer", "pbcopy", "wl-copy", "xclip"}),
+                         ["⚠ Copy failed: tmux load-buffer and every clipboard tool failed for %9"])
+        self.assertEqual(toast(""), ["📋 Nothing to copy from %9"])
 
     def test_nothing_a_terminal_acts_on_reaches_the_clipboard(self):
         # \e[201~ ends a bracketed paste early: whatever follows would run as typed input

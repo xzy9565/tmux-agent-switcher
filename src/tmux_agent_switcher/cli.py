@@ -260,21 +260,22 @@ def cmd_copy(args: argparse.Namespace) -> None:
         except Exception:
             content = ""
 
-    # Load into tmux buffer with OSC 52 flag (-w)
-    try:
-        subprocess.run(["tmux", "load-buffer", "-w", "-"], input=content.encode("utf-8"), check=False)
-    except Exception:
-        pass
-
-    for tool in [["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"]]:
+    def copied(cmd: List[str]) -> bool:
         try:
-            subprocess.run(tool, input=content.encode("utf-8"), check=True, stderr=subprocess.DEVNULL)
-            break
-        except Exception:
-            continue
+            return subprocess.run(cmd, input=content.encode("utf-8"), stderr=subprocess.DEVNULL, check=False).returncode == 0
+        except Exception:  # tool not installed
+            return False
 
+    if not content.strip():
+        msg = f"📋 Nothing to copy from {args.pane_id}"
+    else:
+        buffered = copied(["tmux", "load-buffer", "-w", "-"])  # -w: also the terminal's clipboard over OSC 52
+        system = any(copied(tool) for tool in (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"]))
+        msg = (f"📋 Copied {args.pane_id} to system clipboard" if system
+               else f"📋 Copied {args.pane_id} to tmux buffer · no pbcopy, wl-copy or xclip" if buffered
+               else f"⚠ Copy failed: tmux load-buffer and every clipboard tool failed for {args.pane_id}")
     try:
-        subprocess.run(["tmux", "display-message", f"📋 Copied {args.pane_id} to system clipboard"], check=False)
+        subprocess.run(["tmux", "display-message", msg], check=False)
     except Exception:
         pass
 
