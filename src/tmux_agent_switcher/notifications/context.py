@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Any, Tuple
 
 def _tmux_cmd(args: List[str], timeout: float = 0.5) -> str:
     try:
-        res = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        res = subprocess.run(args, capture_output=True, encoding="utf-8", errors="replace", timeout=timeout)
         return res.stdout or ""
     except Exception:
         return ""

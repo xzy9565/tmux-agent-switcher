@@ -7,6 +7,8 @@ from tmux_agent_switcher.core.config import (
     C_RESET, C_PEACH, C_ICE_BLUE, C_MINT, str_display_width
 )
 from tmux_agent_switcher.core.types import PaneContext
+from tmux_agent_switcher.core.tmux import ProcessTree
+from tmux_agent_switcher.notifications.context import _tmux_cmd
 from tmux_agent_switcher.formatters.markdown import style_inline, render_md, wrap_text
 from tmux_agent_switcher.formatters.table import render_table
 from tmux_agent_switcher.formatters.denoiser import denoise_terminal_text
@@ -31,6 +33,26 @@ class TestConfigAndWidth(unittest.TestCase):
         # ANSI escape sequences must not contribute to display width
         styled = f"\033[1;31mhello\033[0m"
         self.assertEqual(str_display_width(styled), 5)
+
+
+class TestProcessListing(unittest.TestCase):
+    """macOS ps prints argv bytes raw: one non-UTF-8 argv used to fail decoding and blank every pane's detection."""
+
+    def test_process_tree_survives_non_utf8_argv(self):
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as d:
+            ps = os.path.join(d, "ps")
+            with open(ps, "w") as f:
+                f.write("#!/bin/sh\nprintf '  PID  PPID COMMAND\\n    7     1 claude\\n    8     1 perl caf\\351\\377\\n'\n")
+            os.chmod(ps, 0o755)
+            with patch.dict(os.environ, {"PATH": d + os.pathsep + os.environ.get("PATH", "")}):
+                tree = ProcessTree()
+        self.assertEqual(tree.cmd_of.get("7"), "claude")
+        self.assertIn("8", tree.cmd_of)
+
+    def test_notification_ps_helper_survives_non_utf8(self):
+        self.assertEqual(_tmux_cmd(["printf", "a\\351b"]), "a\ufffdb")
 
 
 class TestMarkdownFormatters(unittest.TestCase):

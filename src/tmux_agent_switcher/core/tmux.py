@@ -20,7 +20,7 @@ class ProcessTree:
         self.cmd_of: Dict[str, str] = {}
         cmd = ["ps", "-t", tty, "-o", "pid,ppid,command"] if tty else ["ps", "-eo", "pid,ppid,command"]
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            res = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace", check=False)
             for line in res.stdout.strip().splitlines()[1:]:
                 parts = line.strip().split(None, 2)
                 if len(parts) == 3:
