@@ -20,7 +20,7 @@ class CursorAdapter(BaseAgentAdapter):
     color = C_CURSOR
 
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
-        return "cursor-agent" in heads or "cursor-agent" in pane.current_command or "cursor-agent" in full_desc
+        return "cursor-agent" in heads or "cursor-agent" in pane.current_command
 
     def get_status(
         self,

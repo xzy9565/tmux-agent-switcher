@@ -7,8 +7,18 @@ import subprocess
 from typing import Dict, List, Tuple, Optional
 from .types import PaneContext
 
-OMP_PATTERN = r"(^|[\s/])omp(\s|$)"
-AGENTS_REGEX = re.compile(r"cursor-agent|codex|command-code|claude|grok|agy|opencode|" + OMP_PATTERN)
+# Agents are recognised by the program a process runs, never by text in its arguments
+AGENT_PROGRAMS = {"claude", "codex", "cursor-agent", "command-code", "grok", "agy", "opencode", "omp"}
+INTERPRETERS = {"node", "nodejs", "bun", "deno"}
+
+
+def program_name(cmd: str) -> str:
+    """Program a command line runs, seen through script interpreters: `node /x/bin/codex` -> codex."""
+    argv = cmd.split()
+    name = os.path.basename(argv[0]) if argv else ""
+    if name in INTERPRETERS:
+        name = os.path.basename(next((a for a in argv[1:] if not a.startswith("-") and a != "run"), ""))
+    return re.sub(r"\.(exe|js|mjs|cjs|ts)$", "", name)
 
 
 class ProcessTree:
@@ -52,12 +62,12 @@ class ProcessTree:
         return pids
 
     def get_agent_heads(self, pid: str) -> str:
-        """Find the shallowest process whose command name matches an agent."""
+        """Agent programs at the shallowest level holding one (pid included), e.g. "claude": the agent you launched, not its children."""
         level = [str(pid)]
         while level:
-            heads = " ".join(" ".join(self.cmd_of.get(p, "").split()[:2]) for p in level)
-            if AGENTS_REGEX.search(heads):
-                return heads
+            names = [n for n in (program_name(self.cmd_of.get(p, "")) for p in level) if n in AGENT_PROGRAMS]
+            if names:
+                return " ".join(names)
             level = [c for p in level for c, _ in self.tree.get(p, []) if c != self.my_pid]
         return ""
 

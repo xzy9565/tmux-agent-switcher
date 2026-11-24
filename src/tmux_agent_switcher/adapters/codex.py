@@ -18,7 +18,7 @@ class CodexAdapter(BaseAgentAdapter):
     color = C_CODEX
 
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
-        return "codex" in heads or "codex" in full_desc or "@openai/codex" in full_desc
+        return "codex" in heads
 
     def get_status(
         self,

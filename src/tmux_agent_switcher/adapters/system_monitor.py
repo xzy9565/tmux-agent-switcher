@@ -15,7 +15,7 @@ class SystemMonitorAdapter(BaseAgentAdapter):
 
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
         cmd = pane.current_command
-        return cmd in ("top", *MONITORS) or any(m in full_desc for m in MONITORS)
+        return cmd in ("top", *MONITORS)
 
     def get_status(
         self,

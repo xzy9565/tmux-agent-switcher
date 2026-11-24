@@ -212,6 +212,40 @@ class TestAdapterResolution(unittest.TestCase):
         self.assertIsInstance(adapter, FallbackTuiAdapter)
 
 
+class TestAgentDetection(unittest.TestCase):
+    """Detection end to end through a fake `ps` table: the agent is the program a pane runs, not text in arguments."""
+
+    def _resolve_all(self, rows):
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "table"), "w") as f:
+                f.write("  PID  PPID COMMAND\n" + "".join(f"{pid} {ppid} {cmd}\n" for pid, ppid, cmd in rows))
+            with open(os.path.join(d, "ps"), "w") as f:
+                f.write(f"#!/bin/sh\ncat '{d}/table'\n")
+            os.chmod(os.path.join(d, "ps"), 0o755)
+            with patch.dict(os.environ, {"PATH": d + os.pathsep + os.environ.get("PATH", "")}):
+                tree = ProcessTree()
+        roots = [pid for pid, ppid, _ in rows if ppid == "1"]
+        panes = {pid: PaneContext(pane_id="%" + pid, pid=pid, current_command="zsh", title="t") for pid in roots}
+        return {pid: resolve_adapter(p, tree.get_descendants(pid), tree.get_agent_heads(pid)).name for pid, p in panes.items()}
+
+    def test_agent_is_the_program_not_text_in_arguments(self):
+        found = self._resolve_all([
+            ("900000", "1", "-zsh"),  # Claude whose Bash tool command mentions other agents
+            ("900001", "900000", "claude --resume"),
+            ("900002", "900001", "/bin/zsh -c source ~/.zshrc && eval 'rg cursor-agent codex' < /dev/null"),
+            ("900010", "1", "-zsh"),  # a shell editing Claude's config
+            ("900011", "900010", "vim /Users/x/.claude/CLAUDE.md"),
+            ("900020", "1", "-zsh"),  # AGY driving a codex child
+            ("900021", "900020", "agy --conversation 0f0e0d0c-0b0a-0908-0706-050403020100"),
+            ("900022", "900021", "codex exec fix-tests"),
+            ("900030", "1", "-zsh"),  # an agent launched through node with flags
+            ("900031", "900030", "node --no-warnings /opt/homebrew/lib/node_modules/opencode/bin/opencode"),
+        ])
+        self.assertEqual(found, {"900000": "claude", "900010": "fallback", "900020": "antigravity", "900030": "opencode"})
+
+
 class TestCursorAdapter(unittest.TestCase):
     def setUp(self):
         self.adapter = CursorAdapter()

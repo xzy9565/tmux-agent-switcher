@@ -16,7 +16,7 @@ class CommandCodeAdapter(BaseAgentAdapter):
     color = C_CMD
 
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
-        return "command-code" in heads or bool(pane.cmd_code_sid) or "command-code" in full_desc
+        return "command-code" in heads or bool(pane.cmd_code_sid)
 
     def get_status(
         self,

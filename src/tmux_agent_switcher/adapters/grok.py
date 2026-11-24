@@ -18,7 +18,7 @@ class GrokAdapter(BaseAgentAdapter):
     color = C_GROK
 
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
-        return "grok" in heads or "grok" in pane.current_command or "grok" in full_desc
+        return "grok" in heads or "grok" in pane.current_command
 
     def get_status(
         self,

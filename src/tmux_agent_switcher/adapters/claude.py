@@ -166,7 +166,7 @@ class ClaudeAdapter(BaseAgentAdapter):
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
         if heads:
             return "claude" in heads
-        return "claude" in pane.current_command or "claude" in full_desc or bool(pane.claude_sid)
+        return "claude" in pane.current_command or bool(pane.claude_sid)
 
     def get_status(
         self,

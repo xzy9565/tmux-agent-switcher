@@ -35,7 +35,7 @@ class OmpAdapter(BaseAgentAdapter):
     color = C_OMP
 
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
-        return bool(OMP_RE.search(heads)) or pane.current_command == "omp" or bool(OMP_RE.search(full_desc))
+        return bool(OMP_RE.search(heads)) or pane.current_command == "omp"
 
     def get_status(
         self,
