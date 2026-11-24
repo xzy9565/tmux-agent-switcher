@@ -16,7 +16,7 @@ from tmux_agent_switcher.formatters.bubbles import format_turns
 from tmux_agent_switcher.adapters.base import extract_duck_turns
 from tmux_agent_switcher.adapters.registry import resolve_adapter
 from tmux_agent_switcher.adapters.claude import (
-    ClaudeAdapter, resolve_session_chain, find_active_session_info
+    ClaudeAdapter, resolve_session_chain, find_active_session_info, claude_state
 )
 from tmux_agent_switcher.adapters.antigravity import AntigravityAdapter
 from tmux_agent_switcher.adapters.codex import CodexAdapter
@@ -361,6 +361,36 @@ class TestClaudeAdapter(unittest.TestCase):
         name, color, rank, mtime, title, running = self.adapter.get_status(pane, "", "", shared_state)
         self.assertFalse(running)
         self.assertEqual(rank, 0)
+
+    def _transcript(self, *records):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+            f.write("".join(json.dumps(r) + "\n" for r in records))
+        self.addCleanup(os.unlink, f.name)
+        return f.name
+
+    def test_compaction_summary_does_not_open_a_turn(self):
+        # "Compacted while idle" leaves a user-type summary as the last dialogue record
+        path = self._transcript(
+            {"type": "assistant", "timestamp": "2026-11-22T05:58:42Z",
+             "message": {"role": "assistant", "content": [{"type": "text", "text": "Done."}], "stop_reason": "end_turn"}},
+            {"type": "user", "isCompactSummary": True, "timestamp": "2026-11-22T06:53:38Z",
+             "message": {"role": "user", "content": "This session is being continued from a previous conversation..."}},
+        )
+        self.assertFalse(claude_state(path)[1])
+
+    def test_cli_idle_status_beats_transcript_inference(self):
+        # A crashed or resumed turn can end on a tool_result; the live CLI reporting idle must win
+        path = self._transcript(
+            {"type": "user", "timestamp": "2026-11-20T10:00:00Z",
+             "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}},
+        )
+        self.assertTrue(claude_state(path)[1])
+        pane = PaneContext(pane_id="%1", pid="101", current_command="claude", title="[Sub Price]")
+        state = {"claude_idx": {"sess-1": path}, "cc_status": {"101": "idle"},
+                 "cc_sessions": {"101": {"sessionId": "sess-1", "status": "idle"}}, "tree": {}, "my_pid": "999"}
+        _, _, rank, _, _, running = self.adapter.get_status(pane, "", "", state)
+        self.assertEqual((rank, running), (2, False))
 
 
 class TestNotificationSubsystem(unittest.TestCase):

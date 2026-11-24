@@ -42,7 +42,7 @@ def claude_state(fpath: str, max_bytes: int = 250000) -> Tuple[float, bool]:
         ts = datetime.datetime.fromisoformat(d["timestamp"].replace("Z", "+00:00")).timestamp()
         m = d.get("message") or {}
         c = json.dumps(m.get("content"))
-        if ended or d.get("isMeta") or "[Request interrupted" in c or c.startswith(("\"<command-", "\"<local-command-")):
+        if ended or d.get("isMeta") or d.get("isCompactSummary") or "[Request interrupted" in c or c.startswith(("\"<command-", "\"<local-command-")):
             return ts, False
         return ts, t == "user" or m.get("stop_reason") in (None, "tool_use")
 
@@ -222,9 +222,9 @@ class ClaudeAdapter(BaseAgentAdapter):
                 rank = 0
                 running = False
             elif st == "idle":
-                if not running:
-                    rank = 2
-                    running = False
+                # The CLI's own status beats transcript inference: a compacted or crashed turn can end on a user record
+                rank = 2
+                running = False
 
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
         return self.display_name, self.color, rank, mtime, disp_t, running
