@@ -108,6 +108,43 @@ class TestListCommand(unittest.TestCase):
         cleared = {c.args[0][4] for c in tmux.call_args_list}
         self.assertEqual(cleared, {"misc:3.3"})
 
+    def test_each_row_starts_with_its_exact_target_and_a_tab(self):
+        # fzf's {1} is that hidden first field: a session name can hold spaces, which split rows on whitespace
+        import io, time
+        from contextlib import redirect_stdout
+        from unittest.mock import patch, MagicMock
+        from tmux_agent_switcher import cli
+        tree = MagicMock(tree={}, cmd_of={}, my_pid="1")
+        tree.get_descendants.return_value = tree.get_agent_heads.return_value = ""
+        out = io.StringIO()
+        with patch.object(cli, "list_all_panes", return_value=[PaneContext(pane_id="my proj:1.2", pid="11", current_command="zsh", title="zsh")]), \
+             patch.object(cli, "ProcessTree", return_value=tree), \
+             patch.object(cli, "index_shared_state", return_value={"now": time.time(), "host": "h", "home": "/h"}), \
+             patch.object(cli, "resolve_adapter", return_value=FallbackTuiAdapter()), redirect_stdout(out):
+            cli.cmd_list(None)
+        self.assertTrue(out.getvalue().startswith("my proj:1.2\tmy proj:1.2 "), out.getvalue()[:40])
+
+
+class TestRunCommand(unittest.TestCase):
+    def test_enter_switches_to_a_session_whose_name_has_spaces(self):
+        # the Enter pipeline cut rows at the first space, so "my proj:1.2" became the target "my"
+        import argparse, sys, tempfile
+        from unittest.mock import patch
+        from tmux_agent_switcher import cli
+        with tempfile.TemporaryDirectory() as d:
+            calls = os.path.join(d, "calls")
+            for name, body in (("switcher", "printf 'my proj:1.2\\tmy proj:1.2  ▶ ⚡ Claude\\n'"),  # its `list`
+                               ("fzf", "head -1"),  # Enter on the first row
+                               ("tmux", f"printf '%s|' \"$@\" >> '{calls}'")):
+                with open(os.path.join(d, name), "w") as f:
+                    f.write(f"#!/bin/sh\n{body}\n")
+                os.chmod(os.path.join(d, name), 0o755)
+            with patch.object(sys, "argv", [os.path.join(d, "switcher")]), \
+                 patch.dict(os.environ, {"PATH": d + os.pathsep + os.environ.get("PATH", "")}):
+                cli.cmd_run(argparse.Namespace(preview_width="58%"))
+            with open(calls) as f:
+                self.assertEqual(f.read(), "switch-client|-t|my proj:1.2|")
+
 
 class TestPreviewCommand(unittest.TestCase):
     def test_agent_running_as_the_pane_process_itself(self):

@@ -2703,8 +2703,8 @@ def cmd_list(args: argparse.Namespace) -> None:
         pad_id = f"{pane.pane_id:<{id_w}}"
         pad_h = pad_str(harness, 13)
         pad_s = pad_str(status, 10)
-        formatted = (
-            f"{pad_id} {mark} {h_col}{pad_h}{C_RESET} "
+        formatted = (  # a hidden first field is the exact target fzf hands to every action: session names can hold spaces
+            f"{pane.pane_id}\t{pad_id} {mark} {h_col}{pad_h}{C_RESET} "
             f"{s_col}{pad_s}{C_RESET} {C_DIM}{age_str:>4}{C_RESET}  "
             f"{C_WHITE}{title[:60]}{C_RESET}"
         )
@@ -2818,7 +2818,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     pw = getattr(args, "preview_width", "58%") or "58%"
 
     fzf_cmd = (
-        f"{self_path} list | fzf --ansi --reverse "
+        f"{self_path} list | fzf --ansi --reverse --delimiter '\\t' --with-nth 2.. "
         f"--prompt='🔎 Agent Switcher > ' "
         f"--header='Enter: Jump | Tab: Preview | Ctrl-o: Full History | Shift-↑/↓ / Ctrl-u/d: Scroll | Ctrl-y: Copy (OSC 52) | Ctrl-x: Kill' "
         f"--preview-window 'right,{pw},border-left,wrap,follow' "
@@ -2833,7 +2833,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         f"--bind 'ctrl-y:execute-silent({self_path} copy {{1}})' "
         f"--bind 'alt-y:execute-silent(echo -n {{1}} | tmux load-buffer -w -; tmux display-message \"📋 Copied {{1}}\")' "
         f"--bind 'ctrl-x:execute(tmux kill-pane -t {{1}})+reload({self_path} list)' "
-        f"| awk '{{print $1}}' | xargs -r tmux switch-client -t"
+        f"| cut -f1 | while IFS= read -r t; do tmux switch-client -t \"$t\"; done"
     )
 
     try:
