@@ -561,6 +561,10 @@ def format_turns(
 # --- Agent Adapter Interface & Duck Parsing (adapters/base.py) ---
 """Base interface and parsing utilities for AI Agent adapters."""
 
+def live_tag(pane: PaneContext, tag: str) -> bool:
+    """Session tags are never cleared, so one only counts while something other than a shell runs in the pane."""
+    return bool(tag) and pane.current_command not in SHELLS
+
 def read_tail_lines(filepath: str, max_bytes: int = 800000, full: bool = False) -> List[str]:
     """
     Read tail lines from file without loading entire multi-gigabyte logs into RAM.
@@ -1091,7 +1095,7 @@ class CommandCodeAdapter(BaseAgentAdapter):
     color = C_CMD
 
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
-        return "command-code" in heads or bool(pane.cmd_code_sid)
+        return "command-code" in heads or live_tag(pane, pane.cmd_code_sid)
 
     def get_status(
         self,
@@ -1214,7 +1218,8 @@ def find_active_session_info(
     - Terminal buffer screen capture fallback
     - Session continuation chains (continuedInSessionId)
     """
-    candidate = pane.claude_sid
+    # The pane's own Claude processes come first: the tag is only rewritten when a turn ends, so it lags /clear and /resume
+    candidate = ""
     active_st = None
 
     # Check child processes for parked background jobs or active sessions
@@ -1244,6 +1249,9 @@ def find_active_session_info(
                 if candidate in claude_idx:
                     active_st = cc_sessions[p].get("status")
                     break
+
+    if (not candidate or candidate not in claude_idx) and pane.claude_sid:
+        candidate = pane.claude_sid
 
     # Screen fallback for active session short ID (e.g. 🔗 d10be121)
     if not candidate or candidate not in claude_idx:
@@ -1283,7 +1291,7 @@ class ClaudeAdapter(BaseAgentAdapter):
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
         if heads:
             return "claude" in heads
-        return "claude" in pane.current_command or bool(pane.claude_sid)
+        return "claude" in pane.current_command or live_tag(pane, pane.claude_sid)
 
     def get_status(
         self,
@@ -1469,7 +1477,7 @@ class AntigravityAdapter(BaseAgentAdapter):
     color = C_AGY
 
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
-        return "agy" in heads or "agy" in pane.current_command or bool(pane.agy_tag)
+        return "agy" in heads or "agy" in pane.current_command or live_tag(pane, pane.agy_tag)
 
     def get_status(
         self,
@@ -1559,7 +1567,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
     color = C_OPENCODE
 
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
-        return "opencode" in heads or "opencode" in pane.current_command or bool(pane.oc_tag)
+        return "opencode" in heads or "opencode" in pane.current_command or live_tag(pane, pane.oc_tag)
 
     def get_status(
         self,

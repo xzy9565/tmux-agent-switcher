@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from ..core.types import PaneContext, PreviewResult
 from ..core.config import C_AGY
 from ..formatters.bubbles import format_turns
-from .base import BaseAgentAdapter, read_tail_lines, extract_duck_turns, get_real_dialogue_time
+from .base import BaseAgentAdapter, read_tail_lines, extract_duck_turns, get_real_dialogue_time, live_tag
 
 
 class AntigravityAdapter(BaseAgentAdapter):
@@ -16,7 +16,7 @@ class AntigravityAdapter(BaseAgentAdapter):
     color = C_AGY
 
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
-        return "agy" in heads or "agy" in pane.current_command or bool(pane.agy_tag)
+        return "agy" in heads or "agy" in pane.current_command or live_tag(pane, pane.agy_tag)
 
     def get_status(
         self,

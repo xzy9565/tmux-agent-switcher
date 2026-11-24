@@ -245,6 +245,15 @@ class TestAgentDetection(unittest.TestCase):
         ])
         self.assertEqual(found, {"900000": "claude", "900010": "fallback", "900020": "antigravity", "900030": "opencode"})
 
+    def test_session_tags_count_only_while_something_besides_a_shell_runs(self):
+        # Tags are never cleared: once the agent exits, its pane is a plain shell again
+        stale = PaneContext(pane_id="%1", pid="1", current_command="zsh", title="t",
+                            claude_sid="s1", agy_tag="a1", oc_tag="o1", cmd_code_sid="c1")
+        self.assertEqual(resolve_adapter(stale, "", "").name, "fallback")
+        # Command Code started as `cmd` has no recognisable program name; its tag still identifies it
+        live = PaneContext(pane_id="%2", pid="2", current_command="node", title="t", cmd_code_sid="c1")
+        self.assertEqual(resolve_adapter(live, "", "").name, "command-code")
+
 
 class TestCursorAdapter(unittest.TestCase):
     def setUp(self):
@@ -484,6 +493,13 @@ class TestClaudeAdapter(unittest.TestCase):
             f.write("".join(json.dumps(r) + "\n" for r in records))
         self.addCleanup(os.unlink, f.name)
         return f.name
+
+    def test_own_process_session_beats_a_stale_tag(self):
+        # The tag is rewritten only when a turn ends; after /clear or /resume the process's session file is current
+        pane = PaneContext(pane_id="%1", pid="101", current_command="claude", title="t", claude_sid="old-sess")
+        idx = {"old-sess": "/nonexistent/old.jsonl", "new-sess": "/nonexistent/new.jsonl"}
+        sessions = {"101": {"sessionId": "new-sess", "status": "idle"}}
+        self.assertEqual(find_active_session_info(pane, idx, sessions, ["101"]), ("new-sess", "idle"))
 
     def test_compaction_summary_does_not_open_a_turn(self):
         # "Compacted while idle" leaves a user-type summary as the last dialogue record

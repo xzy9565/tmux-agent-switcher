@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from ..core.types import PaneContext, PreviewResult
 from ..core.config import C_CLAUDE
 from ..formatters.bubbles import format_turns
-from .base import BaseAgentAdapter, read_tail_lines, extract_duck_turns
+from .base import BaseAgentAdapter, read_tail_lines, extract_duck_turns, live_tag
 
 
 def claude_state(fpath: str, max_bytes: int = 250000) -> Tuple[float, bool]:
@@ -96,7 +96,8 @@ def find_active_session_info(
     - Terminal buffer screen capture fallback
     - Session continuation chains (continuedInSessionId)
     """
-    candidate = pane.claude_sid
+    # The pane's own Claude processes come first: the tag is only rewritten when a turn ends, so it lags /clear and /resume
+    candidate = ""
     active_st = None
 
     # Check child processes for parked background jobs or active sessions
@@ -126,6 +127,9 @@ def find_active_session_info(
                 if candidate in claude_idx:
                     active_st = cc_sessions[p].get("status")
                     break
+
+    if (not candidate or candidate not in claude_idx) and pane.claude_sid:
+        candidate = pane.claude_sid
 
     # Screen fallback for active session short ID (e.g. 🔗 d10be121)
     if not candidate or candidate not in claude_idx:
@@ -166,7 +170,7 @@ class ClaudeAdapter(BaseAgentAdapter):
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
         if heads:
             return "claude" in heads
-        return "claude" in pane.current_command or bool(pane.claude_sid)
+        return "claude" in pane.current_command or live_tag(pane, pane.claude_sid)
 
     def get_status(
         self,

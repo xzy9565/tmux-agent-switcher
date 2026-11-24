@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from ..core.types import PaneContext, PreviewResult
 from ..core.config import C_OPENCODE
 from ..formatters.bubbles import format_turns
-from .base import BaseAgentAdapter, extract_duck_turns
+from .base import BaseAgentAdapter, extract_duck_turns, live_tag
 
 
 class OpenCodeAdapter(BaseAgentAdapter):
@@ -18,7 +18,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
     color = C_OPENCODE
 
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
-        return "opencode" in heads or "opencode" in pane.current_command or bool(pane.oc_tag)
+        return "opencode" in heads or "opencode" in pane.current_command or live_tag(pane, pane.oc_tag)
 
     def get_status(
         self,

@@ -6,7 +6,12 @@ import os
 import re
 from typing import Dict, List, Optional, Tuple, Any
 from ..core.types import PaneContext, PreviewResult
-from ..core.config import C_DIM
+from ..core.config import C_DIM, SHELLS
+
+
+def live_tag(pane: PaneContext, tag: str) -> bool:
+    """Session tags are never cleared, so one only counts while something other than a shell runs in the pane."""
+    return bool(tag) and pane.current_command not in SHELLS
 
 
 def read_tail_lines(filepath: str, max_bytes: int = 800000, full: bool = False) -> List[str]:

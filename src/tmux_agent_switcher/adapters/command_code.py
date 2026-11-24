@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from ..core.types import PaneContext, PreviewResult
 from ..core.config import C_CMD
 from ..formatters.bubbles import format_turns
-from .base import BaseAgentAdapter, read_tail_lines, extract_duck_turns, get_real_dialogue_time
+from .base import BaseAgentAdapter, read_tail_lines, extract_duck_turns, get_real_dialogue_time, live_tag
 
 
 class CommandCodeAdapter(BaseAgentAdapter):
@@ -16,7 +16,7 @@ class CommandCodeAdapter(BaseAgentAdapter):
     color = C_CMD
 
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
-        return "command-code" in heads or bool(pane.cmd_code_sid)
+        return "command-code" in heads or live_tag(pane, pane.cmd_code_sid)
 
     def get_status(
         self,
