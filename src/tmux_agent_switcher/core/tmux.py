@@ -110,6 +110,8 @@ def get_pane_context(pane_id: str) -> Optional[PaneContext]:
     try:
         raw = (subprocess.check_output(["tmux", "display-message", "-p", "-t", pane_id, fmt])
                .decode("utf-8", errors="ignore").rstrip("\n").split("\t") + [""] * 12)[:12]
+        if not raw[0]:  # tmux 3.8 prints every field empty, and exits 0, for a pane that no longer exists
+            return None
         geom = raw[3]
         w, h = geom.split("x") if "x" in geom else ("", "")
         return PaneContext(
@@ -117,5 +119,5 @@ def get_pane_context(pane_id: str) -> Optional[PaneContext]:
             width=w, height=h, tty=raw[4], claude_sid=raw[5], cmd_code_sid=raw[6],
             oc_tag=raw[7], omp_tag=raw[8], agy_tag=raw[9], pane_needs_input=raw[10], cwd=raw[11]
         )
-    except Exception:
-        return PaneContext(pane_id=pane_id, pid="", current_command="shell", title=pane_id)
+    except Exception:  # never a stand-in context: its capture error became the preview, and Ctrl-Y copied that
+        return None

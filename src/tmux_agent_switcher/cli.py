@@ -184,7 +184,8 @@ def cmd_preview(args: argparse.Namespace) -> None:
     if not args.pane_id:
         return
     pane = get_pane_context(args.pane_id)
-    if not pane:
+    if not pane:  # stderr: fzf shows it in the preview, Ctrl-Y (stdout only) does not copy it
+        print(f"{args.pane_id}: no such pane (closed since the list was drawn?)", file=sys.stderr)
         return
 
     tree = ProcessTree(tty=pane.tty if pane.tty else None)
@@ -254,7 +255,7 @@ def cmd_copy(args: argparse.Namespace) -> None:
     if not content.strip():
         try:
             content = TERMINAL_CONTROLS.sub("", subprocess.check_output(
-                ["tmux", "capture-pane", "-pJ", "-S", "-100", "-t", args.pane_id]
+                ["tmux", "capture-pane", "-pJ", "-S", "-100", "-t", args.pane_id], stderr=subprocess.DEVNULL
             ).decode("utf-8", errors="ignore"))
         except Exception:
             content = ""

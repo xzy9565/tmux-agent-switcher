@@ -196,6 +196,19 @@ class TestPreviewCommand(unittest.TestCase):
             cli.cmd_preview(argparse.Namespace(pane_id="%9"))
         self.assertIn("⚡ Codex · Fix build", out.getvalue())
 
+    def test_a_closed_pane_previews_nothing_to_copy(self):
+        # a stand-in context for a pane closed since the list was drawn made its capture error the content: Ctrl-Y copied it
+        import argparse, io
+        from contextlib import redirect_stdout, redirect_stderr
+        from unittest.mock import patch
+        from tmux_agent_switcher import cli
+        out, err = io.StringIO(), io.StringIO()
+        gone = ("\t".join(["", "", "", "x"] + [""] * 8) + "\n").encode()  # tmux 3.8, exit 0: every field empty, WxH just "x"
+        with patch("subprocess.check_output", return_value=gone), redirect_stdout(out), redirect_stderr(err):
+            cli.cmd_preview(argparse.Namespace(pane_id="misc:1.9"))
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("misc:1.9: no such pane", err.getvalue())
+
 
 class TestCopyCommand(unittest.TestCase):
     """Ctrl-Y: what reaches the tmux buffer and the system clipboard."""
