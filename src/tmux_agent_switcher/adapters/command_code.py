@@ -27,7 +27,7 @@ class CommandCodeAdapter(BaseAgentAdapter):
     ) -> Tuple[str, str, int, float, str, bool]:
         mtime = 0.0
         if pane.cmd_code_sid:
-            c_files = glob.glob(os.path.expanduser(f"~/.commandcode/projects/**/{pane.cmd_code_sid}*.jsonl"), recursive=True)
+            c_files = glob.glob(os.path.expanduser(f"~/.commandcode/projects/**/{pane.cmd_code_sid}.jsonl"), recursive=True)
             if c_files:
                 mtime = get_real_dialogue_time(c_files[0])
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
@@ -43,7 +43,7 @@ class CommandCodeAdapter(BaseAgentAdapter):
     ) -> Optional[PreviewResult]:
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
         if pane.cmd_code_sid and not ("codex" in full_desc or "@openai/codex" in full_desc):
-            c_files = glob.glob(os.path.expanduser(f"~/.commandcode/projects/**/{pane.cmd_code_sid}*.jsonl"), recursive=True)
+            c_files = glob.glob(os.path.expanduser(f"~/.commandcode/projects/**/{pane.cmd_code_sid}.jsonl"), recursive=True)
             if c_files:
                 lines = read_tail_lines(c_files[0], full=full_history)
                 turns = extract_duck_turns(lines, full=full_history)

@@ -20,6 +20,7 @@ from tmux_agent_switcher.adapters.claude import (
 )
 from tmux_agent_switcher.adapters.antigravity import AntigravityAdapter
 from tmux_agent_switcher.adapters.codex import CodexAdapter
+from tmux_agent_switcher.adapters.command_code import CommandCodeAdapter
 from tmux_agent_switcher.adapters.cursor import CursorAdapter
 from tmux_agent_switcher.adapters.fallback import FallbackTuiAdapter
 
@@ -323,6 +324,28 @@ class TestCodexAdapter(unittest.TestCase):
                 content = CodexAdapter().get_preview(pane, "", [], False, 0).content
         order = [content.index(s) for s in ("first question", "first answer", "second question", "second answer")]
         self.assertEqual(order, sorted(order))
+
+
+class TestCommandCodeAdapter(unittest.TestCase):
+    def test_session_file_is_chosen_over_its_checkpoints_sibling(self):
+        # Every session sits next to <sid>.checkpoints.jsonl, which holds no dialogue
+        import tempfile
+        from unittest.mock import patch
+        sid = "1cf138dc-171b-45b3-a3c7-1b3c5ee60136"
+        with tempfile.TemporaryDirectory() as home:
+            proj = os.path.join(home, ".commandcode", "projects", "private-tmp")
+            os.makedirs(proj)
+            with open(os.path.join(proj, f"{sid}.checkpoints.jsonl"), "w") as f:
+                f.write(json.dumps({"id": "c1", "turnNumber": 1, "prompt": "look at tmux", "messageCount": 0, "files": []}) + "\n")
+            with open(os.path.join(proj, f"{sid}.jsonl"), "w") as f:
+                for role, text in (("user", "look at tmux"), ("assistant", "Tmux looks fine.")):
+                    f.write(json.dumps({"type": "message", "timestamp": "2026-10-29T00:03:02.787Z",
+                                        "message": {"role": role, "content": [{"type": "text", "text": text}]}}) + "\n")
+            pane = PaneContext(pane_id="%1", pid="1", current_command="command-code", title="tmux", cmd_code_sid=sid)
+            with patch.dict(os.environ, {"HOME": home}):
+                result = CommandCodeAdapter().get_preview(pane, "", [], False, 0)
+        self.assertIsNotNone(result)
+        self.assertIn("Tmux looks fine.", result.content)
 
 
 class TestClaudeAdapter(unittest.TestCase):
