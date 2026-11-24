@@ -176,6 +176,26 @@ class TestPreviewCommand(unittest.TestCase):
                 cli.cmd_preview(argparse.Namespace(pane_id="%9"))
         self.assertIn("Root reply.", out.getvalue())
 
+    def test_the_label_names_the_adapter_whose_preview_is_shown(self):
+        # the first adapter to claim the pane labelled it, even when it found no session and another produced the preview
+        import argparse, io
+        from contextlib import redirect_stdout
+        from unittest.mock import patch, MagicMock
+        from tmux_agent_switcher import cli
+        from tmux_agent_switcher.core.types import PreviewResult
+        empty, producer = MagicMock(display_name="🟠 Claude"), MagicMock(display_name="⚡ Codex")
+        empty.name, producer.name = "claude", "codex"
+        empty.get_preview.return_value = None
+        producer.get_preview.return_value = PreviewResult(source_label="codex", content="codex turns")
+        tree = MagicMock()
+        tree.get_descendant_pids.return_value = []
+        out = io.StringIO()
+        with patch.object(cli, "ADAPTERS", [empty, producer]), patch.object(cli, "ProcessTree", return_value=tree), \
+             patch.object(cli, "get_pane_context", return_value=PaneContext(pane_id="%9", pid="1", current_command="node", title="Fix build")), \
+             redirect_stdout(out):
+            cli.cmd_preview(argparse.Namespace(pane_id="%9"))
+        self.assertIn("⚡ Codex · Fix build", out.getvalue())
+
 
 class TestCopyCommand(unittest.TestCase):
     """Ctrl-Y: what reaches the tmux buffer and the system clipboard."""

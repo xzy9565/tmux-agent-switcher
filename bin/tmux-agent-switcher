@@ -2731,14 +2731,13 @@ def cmd_preview(args: argparse.Namespace) -> None:
     w = int(os.environ.get("FZF_PREVIEW_COLUMNS") or 0)
 
     result: Optional[PreviewResult] = None
-    matched_adapter = None
+    matched_adapter = None  # the adapter whose preview is shown: the first to claim a pane may have found no session
     for adapter in ADAPTERS:
         try:
             if adapter.detect(pane, desc_cmd, heads):
-                if not matched_adapter:
-                    matched_adapter = adapter
                 result = adapter.get_preview(pane, desc_cmd, desc_pids, full, w)
                 if result:
+                    matched_adapter = adapter
                     break
         except Exception:
             continue
