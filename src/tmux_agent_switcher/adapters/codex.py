@@ -1,5 +1,6 @@
 """OpenAI Codex adapter."""
 
+import glob
 import json
 import os
 import re
@@ -10,6 +11,14 @@ from ..core.types import PaneContext, PreviewResult
 from ..core.config import C_CODEX
 from ..formatters.bubbles import format_turns
 from .base import BaseAgentAdapter, extract_duck_turns
+
+
+def codex_db(kind: str) -> str:
+    """Newest versioned Codex database of a kind (state_5.sqlite today), so a version bump can't silently strand us."""
+    root = os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
+    found = [(int(m.group(1)), p) for p in glob.glob(os.path.join(root, f"{kind}_*.sqlite"))
+             if (m := re.search(rf"{kind}_(\d+)\.sqlite$", p))]
+    return max(found)[1] if found else ""
 
 
 class CodexAdapter(BaseAgentAdapter):
@@ -62,10 +71,9 @@ class CodexAdapter(BaseAgentAdapter):
         disp_t = re.sub(r"^[✳*★☆✦✧⠀-⣿\s]+", "", pane.title).strip()
         clean_t = disp_t.split("|")[0].strip("[]* ")
 
-        s_db = os.path.expanduser("~/.codex/state_5.sqlite")
-        h_db = os.path.expanduser("~/.codex/thread_history_1.sqlite")
+        s_db, h_db = codex_db("state"), codex_db("thread_history")
 
-        if os.path.exists(s_db) and os.path.exists(h_db):
+        if s_db and h_db:
             try:
                 conn_s = sqlite3.connect(f"file:{s_db}?mode=ro", uri=True)
                 row = conn_s.execute(

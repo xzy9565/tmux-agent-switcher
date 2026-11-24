@@ -431,26 +431,51 @@ class TestCursorAdapter(unittest.TestCase):
 
 
 class TestCodexAdapter(unittest.TestCase):
+    def _codex_home(self, home, threads, items, state_v=5, history_v=1):
+        # threads: (id, name, updated_at_ms, cwd, source, archived); items: (thread_id, "u"/"a", text)
+        import sqlite3
+        d = os.path.join(home, ".codex")
+        os.makedirs(d, exist_ok=True)
+        db = sqlite3.connect(os.path.join(d, f"state_{state_v}.sqlite"))
+        db.execute("CREATE TABLE threads (id TEXT, name TEXT, updated_at_ms INTEGER, cwd TEXT, source TEXT, archived INTEGER)")
+        db.executemany("INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?)", threads)
+        db.commit()
+        db.close()
+        db = sqlite3.connect(os.path.join(d, f"thread_history_{history_v}.sqlite"))
+        db.execute("CREATE TABLE thread_items (thread_id TEXT, item_type TEXT, item_json TEXT, created_at_ms INTEGER)")
+        for i, (tid, kind, text) in enumerate(items):
+            item = ("userMessage", {"content": [{"type": "text", "text": text}]}) if kind == "u" else ("agentMessage", {"text": text})
+            db.execute("INSERT INTO thread_items VALUES (?, ?, ?, ?)", (tid, item[0], json.dumps(item[1]), (i + 1) * 1000))
+        db.commit()
+        db.close()
+
+    def _preview(self, home, title, cwd="/tmp"):
+        from unittest.mock import patch
+        pane = PaneContext(pane_id="%1", pid="1", current_command="codex", title=title, cwd=cwd)
+        with patch.dict(os.environ, {"HOME": home, "CODEX_HOME": ""}):
+            result = CodexAdapter().get_preview(pane, "", [], False, 0)
+        return result.content if result else ""
+
     def test_preview_pairs_turns_in_chronological_order(self):
         # thread_items is queried newest-first; each prompt must pair with its own reply and the newest reply must show
-        import sqlite3, tempfile
-        from unittest.mock import patch
+        import tempfile
         with tempfile.TemporaryDirectory() as home:
-            os.makedirs(os.path.join(home, ".codex"))
-            with sqlite3.connect(os.path.join(home, ".codex", "state_5.sqlite")) as db:
-                db.execute("CREATE TABLE threads (id TEXT, name TEXT, updated_at_ms INTEGER, cwd TEXT)")
-                db.execute("INSERT INTO threads VALUES ('t1', 'Fix login', 4000, '/tmp')")
-            with sqlite3.connect(os.path.join(home, ".codex", "thread_history_1.sqlite")) as db:
-                db.execute("CREATE TABLE thread_items (thread_id TEXT, item_type TEXT, item_json TEXT, created_at_ms INTEGER)")
-                for i, (kind, text) in enumerate([("u", "first question"), ("a", "first answer"),
-                                                  ("u", "second question"), ("a", "second answer")]):
-                    item = ("userMessage", {"content": [{"type": "text", "text": text}]}) if kind == "u" else ("agentMessage", {"text": text})
-                    db.execute("INSERT INTO thread_items VALUES ('t1', ?, ?, ?)", (item[0], json.dumps(item[1]), (i + 1) * 1000))
-            pane = PaneContext(pane_id="%1", pid="1", current_command="codex", title="Fix login")
-            with patch.dict(os.environ, {"HOME": home}):
-                content = CodexAdapter().get_preview(pane, "", [], False, 0).content
+            self._codex_home(home, [("t1", "Fix login", 4000, "/tmp", "cli", 0)],
+                             [("t1", "u", "first question"), ("t1", "a", "first answer"),
+                              ("t1", "u", "second question"), ("t1", "a", "second answer")])
+            content = self._preview(home, "Fix login")
         order = [content.index(s) for s in ("first question", "first answer", "second question", "second answer")]
         self.assertEqual(order, sorted(order))
+
+    def test_newest_database_versions_are_used(self):
+        # A Codex upgrade bumps state_N / thread_history_N, and an old empty state_1 may linger beside them
+        import tempfile
+        with tempfile.TemporaryDirectory() as home:
+            self._codex_home(home, [("t1", "Fix login", 4000, "/tmp", "cli", 0)],
+                             [("t1", "u", "ship it"), ("t1", "a", "Shipped.")], state_v=6, history_v=2)
+            open(os.path.join(home, ".codex", "state_1.sqlite"), "w").close()
+            content = self._preview(home, "Fix login")
+        self.assertIn("Shipped.", content)
 
 
 class TestOpenCodeAdapter(unittest.TestCase):

@@ -18,6 +18,7 @@ from .core.types import PreviewResult
 from .core.tmux import ProcessTree, list_all_panes, get_pane_context
 from .adapters.registry import ADAPTERS, resolve_adapter
 from .adapters.fallback import FallbackTuiAdapter
+from .adapters.codex import codex_db
 from .notifications.gateway import handle_notify, handle_hook_title, handle_clear, handle_focus_out
 from .notifications.context import resolve_notification_context
 
@@ -43,8 +44,8 @@ def index_shared_state() -> Dict[str, Any]:
             pass
 
     # Codex state
-    codex_s = os.path.expanduser("~/.codex/state_5.sqlite")
-    if os.path.exists(codex_s):
+    codex_s = codex_db("state")
+    if codex_s:
         try:
             with sqlite3.connect(f"file:{codex_s}?mode=ro", uri=True) as conn:
                 for tid, name, u_ms, cwd in conn.execute("SELECT id, name, updated_at_ms, cwd FROM threads"):
