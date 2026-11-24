@@ -140,6 +140,30 @@ class TestPreviewCommand(unittest.TestCase):
         self.assertIn("Root reply.", out.getvalue())
 
 
+class TestCopyCommand(unittest.TestCase):
+    """Ctrl-Y: what reaches the tmux buffer and the system clipboard."""
+
+    def _copy(self, preview_out):
+        import argparse, subprocess
+        from unittest.mock import patch
+        from tmux_agent_switcher import cli
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append((cmd, kw))
+            return subprocess.CompletedProcess(cmd, 0, stdout=preview_out if "preview" in cmd else "")
+        with patch.object(cli.subprocess, "run", side_effect=run):
+            cli.cmd_copy(argparse.Namespace(pane_id="%9"))
+        return calls
+
+    def test_nothing_a_terminal_acts_on_reaches_the_clipboard(self):
+        # \e[201~ ends a bracketed paste early: whatever follows would run as typed input
+        hostile = ("━━━ %9 · Claude ━━━\n\nrun this\x1b[201~echo pwned\x1b[200~ \x1b]52;c;ZXZpbA==\x07\x1b]0;title\x07"
+                   "\x1b[4:3mcurly\x1b[0m \x1b]8;id=1;https://x.y\x1b\\link\x1b]8;;\x1b\\ \x9b31m\r\n\ttab\x1bPq#0\x1b\\end")
+        clip = [kw["input"].decode() for cmd, kw in self._copy(hostile) if cmd[:2] == ["tmux", "load-buffer"] or cmd == ["pbcopy"]]
+        self.assertEqual(clip, ["run thisecho pwned curly link 31m\n\ttabend"] * 2)
+
+
 class TestMarkdownFormatters(unittest.TestCase):
     def test_style_inline_code(self):
         styled = style_inline("Run `ls -la` now")

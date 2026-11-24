@@ -225,6 +225,13 @@ def cmd_preview(args: argparse.Namespace) -> None:
         print(f"\033[1;36m━━━ {args.pane_id} · {result.source_label} ━━━\033[0m\n\n{result.content}")
 
 
+# All a terminal acts on when it is pasted: CSI (\e[201~ ends a bracketed paste, so the rest runs as typed keys), OSC
+# (title, OSC 52, hyperlink), DCS/SOS/PM/APC strings, any other ESC sequence, and every C0/C1 control but \t and \n
+TERMINAL_CONTROLS = re.compile(
+    r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[PX^_][^\x1b]*\x1b\\|[ -/]*[0-~])|[\x00-\x08\x0b-\x1f\x7f-\x9f]"
+)
+
+
 def cmd_copy(args: argparse.Namespace) -> None:
     """Extract plain text preview and load into OSC 52 + system clipboard."""
     if not args.pane_id:
@@ -242,15 +249,13 @@ def cmd_copy(args: argparse.Namespace) -> None:
         raw = ""
 
     lines = raw.split("\n")
-    content = "\n".join(lines[2:]) if len(lines) > 2 else raw
-    content = re.sub(r'\033\[[0-9;]*m', '', content)
-    content = re.sub(r'\033\]8;;[^\033]*\033\\', '', content)
+    content = TERMINAL_CONTROLS.sub("", "\n".join(lines[2:]) if len(lines) > 2 else raw)
 
     if not content.strip():
         try:
-            content = subprocess.check_output(
+            content = TERMINAL_CONTROLS.sub("", subprocess.check_output(
                 ["tmux", "capture-pane", "-pJ", "-S", "-100", "-t", args.pane_id]
-            ).decode("utf-8", errors="ignore")
+            ).decode("utf-8", errors="ignore"))
         except Exception:
             content = ""
 
