@@ -268,6 +268,15 @@ class TestDuckTurnsExtraction(unittest.TestCase):
         self.assertEqual(extract_duck_turns(lines), [{"user": "run git checkout <branch> on Vec<String>", "assistant": reply},
                                                      {"user": "ls", "assistant": "Listed."}])
 
+    def test_the_notes_block_goes_but_a_reply_mentioning_it_stays_whole(self):
+        # a mention of the marker used to delete the rest of the reply
+        header = "📒 Possibly-relevant notes (pointer-push — Read the path if useful):"
+        prompt = f"Fix the build.\n\n{header}\n- Build  ·  Areas/Build.md  (rel 100%)\n- CI  ·  CI.md  (rel 67%)"
+        reply = f"Your hook appends this line:\n{header}\nand the rest of a reply used to vanish.\n\nFixed."
+        lines = [json.dumps({"type": role, "message": {"role": role, "content": text}})
+                 for role, text in (("user", prompt), ("assistant", reply))]
+        self.assertEqual(extract_duck_turns(lines), [{"user": "Fix the build.", "assistant": reply}])
+
     def test_full_history_reads_a_bounded_tail(self):
         # Whole-file reads of 300 MB transcripts took ~2 GB of RAM in the preview popup
         import tempfile

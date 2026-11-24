@@ -155,7 +155,8 @@ def extract_duck_turns(lines: List[str], full: bool = False) -> List[Dict[str, s
         text = re.sub(r"<(ADDITIONAL_METADATA|system-reminder)>.*?</\1>", "", text, flags=re.DOTALL)
         # Claude's ! shell mode: a turn of its own (the agent replies to the output), its tags wrapping text inline
         text = re.sub(r"</?bash-(?:input|stdout|stderr)>", "", text)
-        text = re.sub(r"\s*📒 Possibly-relevant notes.*", "", text, flags=re.DOTALL)
+        if role in user_tags:  # the memory-recall hook's pointer block, appended to the prompt: its header and "- … (rel N%)" lines
+            text = re.sub(r"(?m)^📒 Possibly-relevant notes \(pointer-push.*(?:\n- .*\(rel \d+%\))*", "", text)
         text = drop_tag_lines(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text)).strip()
 
         if role in asst_tags and not curr["assistant"]:
