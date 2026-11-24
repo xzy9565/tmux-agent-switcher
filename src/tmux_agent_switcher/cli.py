@@ -29,7 +29,7 @@ def index_shared_state() -> Dict[str, Any]:
         "host": os.uname().nodename.split(".")[0],
         "home": os.path.expanduser("~"),
         "agy_titles": {}, "codex_threads": {}, "codex_cwd": {},
-        "oc_sessions": [], "oc_db": None, "claude_idx": {}, "cc_status": {}
+        "oc_sessions": [], "claude_idx": {}, "cc_status": {}
     }
 
     # AGY summaries
@@ -54,13 +54,20 @@ def index_shared_state() -> Dict[str, Any]:
         except Exception:
             pass
 
-    # OpenCode state
+    # OpenCode sessions (session_v2 schema): (id, title, last prompt-or-reply ms, turn in flight)
     oc_path = os.path.expanduser("~/.local/share/opencode/opencode.db")
     if os.path.exists(oc_path):
         try:
             conn = sqlite3.connect(f"file:{oc_path}?mode=ro", uri=True)
-            state["oc_db"] = conn
-            state["oc_sessions"] = conn.execute("SELECT id, title, time_updated FROM session WHERE parent_id IS NULL").fetchall()
+            try:
+                state["oc_sessions"] = conn.execute(
+                    "SELECT id, COALESCE(title, ''), "
+                    "COALESCE(NULLIF(MAX(COALESCE(time_busy, 0), COALESCE(time_idle, 0)), 0), time_updated), "
+                    "COALESCE(time_busy, 0) > COALESCE(time_idle, 0) "
+                    "FROM session_v2 WHERE parent_id IS NULL"
+                ).fetchall()
+            finally:
+                conn.close()
         except Exception:
             pass
 
@@ -159,12 +166,6 @@ def cmd_list(args: argparse.Namespace) -> None:
             f"{C_WHITE}{title[:60]}{C_RESET}"
         )
         out.append((rank, mtime, formatted))
-
-    if state.get("oc_db"):
-        try:
-            state["oc_db"].close()
-        except Exception:
-            pass
 
     out.sort(key=lambda x: (x[0], -x[1]))
     for _, _, line in out:

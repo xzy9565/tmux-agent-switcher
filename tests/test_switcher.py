@@ -453,6 +453,60 @@ class TestCodexAdapter(unittest.TestCase):
         self.assertEqual(order, sorted(order))
 
 
+class TestOpenCodeAdapter(unittest.TestCase):
+    """session_v2 / session_message schema: the legacy session/message/part tables stopped updating."""
+
+    def _db(self, home, sessions, messages):
+        import sqlite3
+        d = os.path.join(home, ".local", "share", "opencode")
+        os.makedirs(d)
+        db = sqlite3.connect(os.path.join(d, "opencode.db"))
+        db.execute("CREATE TABLE session_v2 (id TEXT, title TEXT, parent_id TEXT, time_updated INTEGER, time_busy INTEGER, time_idle INTEGER)")
+        db.execute("CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, data TEXT)")
+        db.executemany("INSERT INTO session_v2 VALUES (?, ?, NULL, ?, ?, ?)", sessions)
+        db.executemany("INSERT INTO session_message VALUES (?, ?, ?, ?, ?)",
+                       [(f"m{i}", sid, t, i, json.dumps(data)) for i, (sid, t, data) in enumerate(messages)])
+        db.commit()
+        db.close()
+
+    def test_preview_reads_v2_messages_and_only_reply_text(self):
+        import tempfile
+        from unittest.mock import patch
+        from tmux_agent_switcher.adapters.opencode import OpenCodeAdapter
+        msgs = [
+            ("ses_1", "user", {"text": "first question"}),
+            ("ses_1", "assistant", {"content": [{"type": "reasoning", "text": "private thoughts"},
+                                                 {"type": "tool", "name": "shell", "state": {"output": "tool noise"}},
+                                                 {"type": "text", "text": "first answer"}]}),
+            ("ses_1", "synthetic", {"text": "<shell state=completed>"}),
+            ("ses_1", "user", {"text": "second question"}),
+            ("ses_1", "assistant", {"content": [{"type": "text", "text": "second answer"}]}),
+        ]
+        with tempfile.TemporaryDirectory() as home:
+            self._db(home, [("ses_1", "[Coder]", 3000, 1000, 2000)], msgs)
+            pane = PaneContext(pane_id="%1", pid="1", current_command="opencode.exe", title="OC | [Coder]", oc_tag="ses_1")
+            with patch.dict(os.environ, {"HOME": home}):
+                content = OpenCodeAdapter().get_preview(pane, "", [], False, 0).content
+        order = [content.index(s) for s in ("first question", "first answer", "second question", "second answer")]
+        self.assertEqual(order, sorted(order))
+        for noise in ("private thoughts", "tool noise", "shell state"):
+            self.assertNotIn(noise, content)
+
+    def test_status_comes_from_the_session_busy_and_idle_times(self):
+        # Busy after its last idle: a turn is in flight; the age is the last prompt or reply, not time_updated
+        import tempfile
+        from unittest.mock import patch
+        from tmux_agent_switcher import cli
+        from tmux_agent_switcher.adapters.opencode import OpenCodeAdapter
+        with tempfile.TemporaryDirectory() as home:
+            self._db(home, [("ses_1", "[Coder]", 9000, 5000, 4000)], [])
+            with patch.dict(os.environ, {"HOME": home}):
+                state = cli.index_shared_state()
+        pane = PaneContext(pane_id="%1", pid="1", current_command="opencode.exe", title="OC | [Coder]", oc_tag="ses_1")
+        _, _, rank, mtime, _, running = OpenCodeAdapter().get_status(pane, "", "opencode", state)
+        self.assertEqual((rank, mtime, running), (1, 5.0, True))
+
+
 class TestCommandCodeAdapter(unittest.TestCase):
     def test_session_file_is_chosen_over_its_checkpoints_sibling(self):
         # Every session sits next to <sid>.checkpoints.jsonl, which holds no dialogue
