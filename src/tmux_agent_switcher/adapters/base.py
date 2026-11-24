@@ -80,6 +80,21 @@ def get_real_dialogue_time(filepath: str, max_bytes: int = 250000) -> float:
         return 0.0
 
 
+def drop_tag_lines(text: str) -> str:
+    """
+    Agents wrap prompts in tag lines (<USER_REQUEST>, <user_query>, <untrusted_objective>): drop a tag alone on its line
+    outside a code fence. A tag within a line is text: Vec<String>, git checkout <branch>, <Leader>, <br>.
+    """
+    out, fence = [], False
+    for line in text.split("\n"):
+        if line.lstrip().startswith("```"):
+            fence = not fence
+        elif not fence and re.fullmatch(r"\s*</?[A-Za-z][\w-]*>\s*", line):
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
 def extract_duck_turns(lines: List[str], full: bool = False) -> List[Dict[str, str]]:
     """
     Duck-typing turn extractor supporting multiple schemas across Claude, AGY,
@@ -138,8 +153,10 @@ def extract_duck_turns(lines: List[str], full: bool = False) -> List[Dict[str, s
             continue
 
         text = re.sub(r"<(ADDITIONAL_METADATA|system-reminder)>.*?</\1>", "", text, flags=re.DOTALL)
+        # Claude's ! shell mode: a turn of its own (the agent replies to the output), its tags wrapping text inline
+        text = re.sub(r"</?bash-(?:input|stdout|stderr)>", "", text)
         text = re.sub(r"\s*📒 Possibly-relevant notes.*", "", text, flags=re.DOTALL)
-        text = re.sub(r"\x1b\[[0-9;]*[A-Za-z]|</?[a-zA-Z0-9_-]+>", "", text).strip()
+        text = drop_tag_lines(re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text)).strip()
 
         if role in asst_tags and not curr["assistant"]:
             if text:

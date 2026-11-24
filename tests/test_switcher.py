@@ -204,6 +204,11 @@ class TestMarkdownFormatters(unittest.TestCase):
         self.assertIn("GitHub", link)
         self.assertIn("\033]8;;https://github.com\033\\", link)
 
+    def test_inline_html_renders_as_text_except_in_code(self):
+        import re
+        styled = style_inline("cell<br>two <kbd>Ctrl</kbd>+<b>C</b>, not `<b>`")
+        self.assertEqual(re.sub(r"\033\[[0-9;]*m", "", styled), "cell two Ctrl+C, not <b>")
+
     def test_render_table(self):
         table_raw = [
             "| Command | Description |",
@@ -252,6 +257,16 @@ class TestDuckTurnsExtraction(unittest.TestCase):
         self.assertEqual(len(turns), 1)
         self.assertEqual(turns[0]["user"], "How do I fix this?")
         self.assertEqual(turns[0]["assistant"], "Here is the fix.")
+
+    def test_only_wrapper_tag_lines_are_dropped_never_tags_in_text(self):
+        # every <word> used to be deleted: placeholders, generics, vim keys, HTML in code
+        user = "<USER_REQUEST>\nrun git checkout <branch> on Vec<String>\n</USER_REQUEST>"
+        reply = "Map <Leader>y to copy:\n```html\n<div>\n</div>\n```"
+        lines = [json.dumps({"type": role, "message": {"role": role, "content": text}}) for role, text in (
+            ("user", user), ("assistant", reply),
+            ("user", "<bash-input>ls</bash-input>"), ("assistant", "Listed."))]  # ! shell mode, which the agent answers
+        self.assertEqual(extract_duck_turns(lines), [{"user": "run git checkout <branch> on Vec<String>", "assistant": reply},
+                                                     {"user": "ls", "assistant": "Listed."}])
 
     def test_full_history_reads_a_bounded_tail(self):
         # Whole-file reads of 300 MB transcripts took ~2 GB of RAM in the preview popup

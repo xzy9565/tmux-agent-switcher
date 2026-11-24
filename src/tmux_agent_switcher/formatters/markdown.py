@@ -45,6 +45,9 @@ def style_inline(text: str, base_col: str = "") -> str:
         return f"\x00CODE_{len(code_tokens)-1}\x00"
 
     s = re.sub(r"`([^`]+)`", save_code, s)
+    # Inline HTML in markdown: <br> breaks the line (a space on one row), formatting tags only style their text
+    s = re.sub(r"<br\s*/?>", " ", s, flags=re.I)
+    s = re.sub(r"</?(?:b|i|u|s|em|strong|kbd|code|mark|sub|sup|small|span|p|div|del|ins|details|summary)>", "", s, flags=re.I)
 
     def render_link(m):
         txt, url = m.group(1), m.group(2)
