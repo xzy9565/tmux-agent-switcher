@@ -4,7 +4,7 @@ import json
 import os
 import unittest
 from tmux_agent_switcher.core.config import (
-    C_RESET, C_PEACH, C_ICE_BLUE, C_MINT, str_display_width
+    C_RESET, C_PEACH, C_ICE_BLUE, C_MINT, C_ITALIC, str_display_width
 )
 from tmux_agent_switcher.core.types import PaneContext
 from tmux_agent_switcher.core.tmux import ProcessTree
@@ -326,6 +326,19 @@ class TestMarkdownFormatters(unittest.TestCase):
         self.assertIn("☑", rendered)
         self.assertIn("☐", rendered)
         self.assertIn("python", rendered)
+
+    def test_wrapping_counts_display_cells_and_keeps_spans_whole(self):
+        import re
+        plain = lambda s: re.sub(r"\033\]8;;[^\033]*\033\\|\033\[[0-9;]*m", "", s)
+        # Chinese has no spaces to break at: every line still fits, and none starts with a comma or full stop
+        zh = render_md("中文句子里没有空格，按字数折行的话，一行会宽到预览的两倍。" * 4, preview_width=40).split("\n")
+        self.assertEqual([l for l in zh if str_display_width(l) > 39 or plain(l)[:1] in "，。"], [])
+        # A link or italic the break falls inside stays styled on both lines instead of showing its markdown
+        md = "See the [documentation page for every option](https://example.com/docs) and *an italic phrase that wraps here* too."
+        lines = render_md(md, preview_width=40).split("\n")
+        self.assertEqual([l for l in lines if str_display_width(l) > 39 or re.search(r"[\[\]()*]", plain(l))], [])
+        self.assertEqual(sum("\033]8;;https://example.com/docs\033\\" in l for l in lines), 2)
+        self.assertTrue(lines[2].startswith(C_ITALIC), lines)
 
 
 class TestDenoiser(unittest.TestCase):
