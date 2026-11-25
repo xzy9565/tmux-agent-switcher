@@ -1579,6 +1579,27 @@ class GrokAdapter(BaseAgentAdapter):
 # --- Google Antigravity / AGY Adapter (adapters/antigravity.py) ---
 """Google Antigravity (AGY) / Gemini adapter."""
 
+# agy logs each conversation twice, line for line: transcript.jsonl cuts the middle out of long fields ("<truncated N bytes>",
+# which broke bold and links in previews), transcript_full.jsonl keeps them. Its uncut tool output outweighs the turns many
+# times over, so a byte window of it holds few turns: stream it and keep only the turn records. Some lines space the colon.
+TURN_RECORD = re.compile(rb'"type": ?"(?:USER_INPUT|PLANNER_RESPONSE)"')
+
+def read_turn_lines(path: str) -> List[str]:
+    """The turn records of agy's uncut log, at most the last FULL_HISTORY_MAX_BYTES of them."""
+    kept: collections.deque = collections.deque()
+    size = 0
+    try:
+        with open(path, "rb") as f:
+            for line in f:
+                if TURN_RECORD.search(line, 0, 200):  # type is the third key, after step_index and source
+                    kept.append(line)
+                    size += len(line)
+                    while size > FULL_HISTORY_MAX_BYTES:
+                        size -= len(kept.popleft())
+    except OSError:
+        return []
+    return [l.decode("utf-8", errors="ignore") for l in kept]
+
 class AntigravityAdapter(BaseAgentAdapter):
     name = "antigravity"
     display_name = "🤖 AGY"
@@ -1604,6 +1625,7 @@ class AntigravityAdapter(BaseAgentAdapter):
         running = False
 
         if cid:
+            # Timestamps are never cut, and the cut log's short lines fit more records in the window
             tpath = os.path.expanduser(f"~/.gemini/antigravity-cli/brain/{cid}/.system_generated/logs/transcript.jsonl")
             if os.path.exists(tpath):
                 mtime = get_real_dialogue_time(tpath)
@@ -1648,21 +1670,24 @@ class AntigravityAdapter(BaseAgentAdapter):
                     pass
 
         if cid:
-            tpath = os.path.expanduser(f"~/.gemini/antigravity-cli/brain/{cid}/.system_generated/logs/transcript.jsonl")
-            if os.path.exists(tpath):
+            logs = os.path.expanduser(f"~/.gemini/antigravity-cli/brain/{cid}/.system_generated/logs")
+            tpath = f"{logs}/transcript_full.jsonl"
+            lines = read_turn_lines(tpath)
+            if not lines:  # no uncut log: the cut one still holds every turn
+                tpath = f"{logs}/transcript.jsonl"
                 lines = read_tail_lines(tpath, full=full_history)
-                turns = extract_duck_turns(lines, full=full_history)
-                if turns:
-                    is_live = False
-                    try:
-                        is_live = time.time() - os.path.getmtime(tpath) < 120
-                    except Exception:
-                        pass
-                    content = format_turns(turns, live=is_live, full_history=full_history, preview_width=preview_width)
-                    return PreviewResult(
-                        source_label=f"{self.display_name} · {disp_t}",
-                        content=content
-                    )
+            turns = extract_duck_turns(lines, full=full_history)
+            if turns:
+                is_live = False
+                try:
+                    is_live = time.time() - os.path.getmtime(tpath) < 120
+                except Exception:
+                    pass
+                content = format_turns(turns, live=is_live, full_history=full_history, preview_width=preview_width)
+                return PreviewResult(
+                    source_label=f"{self.display_name} · {disp_t}",
+                    content=content
+                )
         return None
 
 

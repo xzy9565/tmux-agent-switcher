@@ -712,6 +712,41 @@ class TestCursorAdapter(unittest.TestCase):
             self.assertEqual(title, "[Whisper Keyboard]")
 
 
+class TestAntigravityAdapter(unittest.TestCase):
+    def test_previews_show_uncut_replies_and_every_recent_turn(self):
+        # agy cuts long fields out of transcript.jsonl and keeps them in transcript_full.jsonl, where uncut tool output
+        # (1 MB per call here) leaves a byte window of the file with less than one turn
+        import re
+        import tempfile
+        from unittest.mock import patch
+        cid = "0f0e0d0c-0b0a-0908-0706-050403020100"
+        reply = "See **the fix** in [the doc](https://example.com/a_b) " + "x" * 3000
+        records = lambda text, output: [r for i in range(5) for r in (
+            {"step_index": 3 * i, "source": "USER_EXPLICIT", "type": "USER_INPUT", "content": f"<USER_REQUEST>\nask {i}\n</USER_REQUEST>"},
+            {"step_index": 3 * i + 1, "source": "MODEL", "type": "GENERIC", "content": output},
+            {"step_index": 3 * i + 2, "source": "MODEL", "type": "PLANNER_RESPONSE", "content": text})]
+        plain = lambda s: re.sub(r"\x1b\]8;;[^\x1b]*\x1b\\|\x1b\[[0-9;]*m", "", s)
+        pane = PaneContext(pane_id="%1", pid="101", current_command="agy", title="AGY", agy_tag=cid)
+        with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"HOME": home}):
+            logs = os.path.join(home, ".gemini", "antigravity-cli", "brain", cid, ".system_generated", "logs")
+            os.makedirs(logs)
+            with open(os.path.join(logs, "transcript.jsonl"), "w") as f:
+                for r in records(reply[:30] + "\n<truncated 3030 bytes>\n" + reply[-20:], "o" * 100):
+                    f.write(json.dumps(r, separators=(",", ":")) + "\n")
+            with open(os.path.join(logs, "transcript_full.jsonl"), "w") as f:
+                for n, r in enumerate(records(reply, "o" * (1 << 20))):
+                    f.write(json.dumps(r, separators=(",", ":") if n % 2 else None) + "\n")  # both spellings occur
+            recent, full = (plain(AntigravityAdapter().get_preview(pane, "", [], h, 200).content) for h in (False, True))
+            os.unlink(os.path.join(logs, "transcript_full.jsonl"))
+            fallback = plain(AntigravityAdapter().get_preview(pane, "", [], False, 200).content)
+        for ask in ("ask 1", "ask 2", "ask 3", "ask 4"):
+            self.assertIn(ask, recent)
+        self.assertIn("See the fix in the doc", recent)
+        self.assertNotIn("<truncated", recent + full)
+        self.assertIn("ask 0", full)
+        self.assertIn("ask 4", fallback)  # no uncut log: the cut one still shows every turn
+
+
 class TestCodexAdapter(unittest.TestCase):
     def _codex_home(self, home, threads, items, state_v=5, history_v=1):
         # threads: (id, name, updated_at_ms, cwd, source, archived); items: (thread_id, "u"/"a", text)

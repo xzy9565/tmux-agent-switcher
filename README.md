@@ -230,7 +230,7 @@ bind Space display-popup -w 88% -h 82% -E "tmux-agent-switcher run"
 | Harness | Adapter Key | Detection Source | Extracted Preview Store |
 |:---|:---:|:---|:---|
 | **Anthropic Claude Code** | `claude` | Process tree (`claude`) / `@claude-session-id` | `~/.claude*/projects/*/*.jsonl` + `~/.claude*/sessions/*.json` (every profile) |
-| **Google Antigravity (AGY)** | `antigravity` | Process tree (`agy`) / `@agy-session-id` | `~/.gemini/antigravity-cli/brain/*/transcript.jsonl` |
+| **Google Antigravity (AGY)** | `antigravity` | Process tree (`agy`) / `@agy-session-id` | `~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transcript_full.jsonl` |
 | **OpenAI Codex** | `codex` | Process tree (`codex`) | `$CODEX_HOME/state_N.sqlite` + `thread_history_N.sqlite` (newest version) |
 | **Cursor CLI** | `cursor` | Process tree (`cursor-agent`) | `~/.cursor/projects/*/agent-transcripts/*/*.jsonl` (the open one via `lsof`) |
 | **OpenCode** | `opencode` | Process tree (`opencode`) / `@opencode-session-id` | `~/.local/share/opencode/opencode.db` (`session_v2` / `session_message`) |
