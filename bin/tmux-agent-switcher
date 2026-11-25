@@ -433,7 +433,8 @@ def style_inline(text: str, base_col: str = "") -> str:
 
     def render_link(m):
         txt, url = m.group(1), m.group(2)
-        return f"\033]8;;{url}\033\\{C_LINK}{txt}{C_RESET}{base_col}\033]8;;\033\\"
+        code_tokens.append(f"\033]8;;{url}\033\\")  # held back like code, or emphasis rewrites the _ and * in URLs
+        return f"\x00CODE_{len(code_tokens)-1}\x00{C_LINK}{txt}{C_RESET}{base_col}\033]8;;\033\\"
 
     s = re.sub(r"\[([^\]]+)\]\((https?://[^\)]+|file://[^\)]+|/[^\)]+)\)", render_link, s)
 

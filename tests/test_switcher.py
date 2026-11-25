@@ -302,6 +302,12 @@ class TestMarkdownFormatters(unittest.TestCase):
         self.assertIn("GitHub", link)
         self.assertIn("\033]8;;https://github.com\033\\", link)
 
+    def test_emphasis_never_rewrites_a_link_url(self):
+        styled = style_inline("see [init](/repo/pkg/__init__.py) and [x](https://e.com/a_b_c*d*)")
+        self.assertIn("\033]8;;/repo/pkg/__init__.py\033\\", styled)
+        self.assertIn("\033]8;;https://e.com/a_b_c*d*\033\\", styled)
+        self.assertEqual(str_display_width(styled), len("see init and x"))
+
     def test_inline_html_renders_as_text_except_in_code(self):
         import re
         styled = style_inline("cell<br>two <kbd>Ctrl</kbd>+<b>C</b>, not `<b>`")
