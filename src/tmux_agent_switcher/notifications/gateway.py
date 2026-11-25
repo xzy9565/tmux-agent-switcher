@@ -52,12 +52,6 @@ def handle_focus_out(pane_id: str) -> None:
         handle_notify(pending.get("agent", ""), pending.get("message", ""), pane_id)
 
 
-def handle_hook_title(pane_id: str) -> None:
-    """Deprecated: Pane title sniffing removed in favor of native agent hooks."""
-    pass
-
-
-
 def _check_agy_waiting(conv_id: str) -> bool:
     """Check if AGY is currently waiting for background tasks or schedule timers."""
     if not conv_id:

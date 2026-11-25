@@ -20,7 +20,7 @@ from .adapters.registry import ADAPTERS, resolve_adapter
 from .adapters.fallback import FallbackTuiAdapter
 from .adapters.codex import codex_db, CODEX_ROOTS
 from .adapters.claude import CLAUDE_PROJECTS
-from .notifications.gateway import handle_notify, handle_hook_title, handle_clear, handle_focus_out
+from .notifications.gateway import handle_notify, handle_clear, handle_focus_out
 from .notifications.context import resolve_notification_context
 
 
@@ -354,15 +354,6 @@ def cmd_notify(args: argparse.Namespace) -> None:
     print("{}")
 
 
-def cmd_hook_title(args: argparse.Namespace) -> None:
-    try:
-        pane_id = args.pane_id or os.environ.get("TMUX_PANE", "")
-        handle_hook_title(pane_id)
-    except Exception:
-        pass
-    sys.exit(0)
-
-
 def cmd_clear(args: argparse.Namespace) -> None:
     try:
         pane_id = args.pane_id or os.environ.get("TMUX_PANE", "")
@@ -426,9 +417,6 @@ def main() -> None:
     p_not.add_argument("pane_id", nargs="?", default="", help="Target tmux pane identifier (e.g. %%43)")
     p_not.add_argument("-f", "--force", action="store_true", help="Force notification even if focused")
 
-    p_hook = sub.add_parser("hook-title", help="Handle tmux pane-title-changed event")
-    p_hook.add_argument("pane_id", nargs="?", default="", help="Target tmux pane identifier (e.g. %%43)")
-
     p_clr = sub.add_parser("clear", help="Clear visual yellow border and input alerts on pane")
     p_clr.add_argument("pane_id", nargs="?", default="", help="Target tmux pane identifier (e.g. %%43)")
 
@@ -444,7 +432,7 @@ def main() -> None:
     dispatch = {
         "list": cmd_list, "preview": cmd_preview, "copy": cmd_copy, "kill": cmd_kill,
         "run": cmd_run, "notify": cmd_notify,
-        "hook-title": cmd_hook_title, "clear": cmd_clear, "focus-out": cmd_focus_out, "context": cmd_context
+        "clear": cmd_clear, "focus-out": cmd_focus_out, "context": cmd_context
     }
     if args.command in dispatch:
         dispatch[args.command](args)

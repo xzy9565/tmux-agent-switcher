@@ -952,31 +952,12 @@ class TestNotificationSubsystem(unittest.TestCase):
         with patch("subprocess.Popen"):
             handle_notify("Claude", "Done", target_pane="%999999", force=False)
 
-    def test_handle_hook_title_deprecated_noop(self):
-        from unittest.mock import patch
-        from tmux_agent_switcher.notifications.gateway import handle_hook_title
-
-        with patch("subprocess.run") as mock_run:
-            handle_hook_title("%42")
-            # Deprecated: Pane title sniffing removed in favor of native agent hooks (0 subprocess calls)
-            self.assertEqual(mock_run.call_count, 0)
-
     def test_osc9_raw_for_a_terminal_wrapped_for_a_nested_tmux(self):
         from tmux_agent_switcher.notifications.gateway import _osc9
         # Control bytes in agent text cannot end the alert or smuggle in another sequence (here OSC 52).
         self.assertEqual(_osc9("hi\x1b]52;c;eA==\x07", "xterm-ghostty"), "\x1b]9;hi ]52;c;eA== \x1b\\")
         # Passthrough needs every inner ESC doubled, including the one in the closing ST.
         self.assertEqual(_osc9("hi", "tmux-256color"), "\x1bPtmux;\x1b\x1b]9;hi\x1b\x1b\\\x1b\\")
-
-    def test_cmd_hook_title_always_exits_zero(self):
-        import argparse
-        from unittest.mock import patch
-        from tmux_agent_switcher.cli import cmd_hook_title
-
-        with patch("tmux_agent_switcher.cli.handle_hook_title", side_effect=RuntimeError("Simulated error")):
-            with self.assertRaises(SystemExit) as cm:
-                cmd_hook_title(argparse.Namespace(pane_id="%42"))
-            self.assertEqual(cm.exception.code, 0)
 
     def test_read_stdin_payload_nonblocking(self):
         import io, os, select, subprocess, sys

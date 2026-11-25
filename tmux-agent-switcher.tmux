@@ -12,7 +12,7 @@
 #   set -g @agent-switcher-preview-width '58%'  # Preview split width
 #   set -g @agent-switcher-mark-input 'on'      # Highlight input-needed pane with yellow border (on/off)
 #   set -g @agent-switcher-notify 'none'        # Notifications: none, bell, desktop, passthrough, all
-#   set -g @agent-switcher-hook 'on'            # Auto-register title & clearance hooks (on/off)
+#   set -g @agent-switcher-hook 'on'            # Auto-register focus hooks that clear and raise alerts (on/off)
 # ==============================================================================
 
 CURRENT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
