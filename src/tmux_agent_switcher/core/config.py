@@ -3,6 +3,7 @@
 import os
 import re
 import unicodedata
+from typing import List
 
 # Basic ANSI Controls
 C_RESET = "\033[0m"
@@ -98,3 +99,79 @@ def pad_str(s: str, target_width: int) -> str:
     curr_w = str_display_width(s)
     pad = max(0, target_width - curr_w)
     return s + " " * pad
+
+
+PIECES = re.compile(r"\033\]8;;[^\033]*\033\\|\033\[[0-9;]*m| +|[^ ]")  # escape, spaces, or one character
+STATE = re.compile(r"\033\]8;;([^\033]*)\033\\|(\033\[[0-9;]*m)")
+CLOSERS = "，。、；：！？）】」』》〉”’…"  # never start a line
+OPENERS = "（【「『《〈“‘"  # never end one
+
+
+def _joins(prev: str, tok: str) -> bool:
+    """True if tok is drawn as part of the character before it, so no line may break between them."""
+    return tok[0] == "\033" or not char_width(tok) or prev == "\u200d" or "\U0001f3fb" <= tok <= "\U0001f3ff"
+
+
+def _units(text: str) -> List[str]:
+    """Split styled text into runs no line breaks inside, and the spaces between them. CJK breaks between characters."""
+    units, word, prev, prev_wide = [], "", "", False
+    for tok in PIECES.findall(text):
+        if tok[0] == " ":
+            units += [word, tok] if word else [tok]
+            word, prev, prev_wide = "", "", False
+            continue
+        if not _joins(prev, tok):
+            wide = char_width(tok) == 2
+            if prev and (prev_wide or wide) and tok not in CLOSERS and prev not in OPENERS:
+                units.append(word)
+                word = ""
+            prev, prev_wide = tok, wide
+        elif tok[0] != "\033":
+            prev = tok
+        word += tok
+    return units + [word] if word else units
+
+
+def _cut(run: str, n: int):
+    """Split a run wider than a line into a head at most n cells wide and the rest."""
+    toks = PIECES.findall(run)
+    for i in range(1, len(toks)):
+        if not _joins(toks[i - 1], toks[i]) and str_display_width("".join(toks[:i + 1])) > n:
+            return "".join(toks[:i]), "".join(toks[i:])
+    return run, ""
+
+
+def wrap_ansi(text: str, limit: int) -> List[str]:
+    """Wrap styled text into lines at most limit cells wide; a run wider than a whole line is cut.
+
+    A span or link the break falls inside closes at the line end and reopens on the next line.
+    """
+    lines, cur, cur_w, gap = [], "", 0, ""
+    for u in _units(text.expandtabs()):
+        if u[0] == " ":
+            gap = u
+            continue
+        uw = str_display_width(u)
+        if cur_w and cur_w + len(gap) + uw > limit:
+            lines.append(cur)
+            cur, cur_w, gap = "", 0, ""
+        if cur_w or not lines:  # spaces start only the first line
+            cur, cur_w = cur + gap, cur_w + len(gap)
+        gap = ""
+        while cur_w + uw > limit:
+            head, u = _cut(u, limit - cur_w)
+            lines.append(cur + head)
+            cur, cur_w, uw = "", 0, str_display_width(u)
+        cur, cur_w = cur + u, cur_w + uw
+    lines.append(cur)
+
+    out, sgr, link = [], "", ""
+    for line in lines:
+        head = sgr + (f"\033]8;;{link}\033\\" if link else "")
+        for url, code in STATE.findall(line):
+            if code:
+                sgr = "" if code == C_RESET else sgr + code
+            else:
+                link = url
+        out.append(head + line + ("\033]8;;\033\\" if link else "") + (C_RESET if sgr else ""))
+    return out

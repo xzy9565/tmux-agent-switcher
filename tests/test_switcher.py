@@ -340,6 +340,24 @@ class TestMarkdownFormatters(unittest.TestCase):
         self.assertEqual(sum("\033]8;;https://example.com/docs\033\\" in l for l in lines), 2)
         self.assertTrue(lines[2].startswith(C_ITALIC), lines)
 
+    def test_a_table_wider_than_the_preview_fits_it_and_wraps_its_cells(self):
+        import re
+        plain = lambda s: re.sub(r"\033\]8;;[^\033]*\033\\|\033\[[0-9;]*m", "", s)
+        rows = [["Item", "Notes", "状态"],
+                ["width", "every symbol was measured in a tmux pane, then the widest columns shrink to fit", "已完成，真实表格全部对齐"],
+                ["wrap", "cells wrap inside their own column", "进行中"]]
+        md = "\n".join("| " + " | ".join(r) + " |" for r in rows[:1] + [["---"] * 3] + rows[1:])
+        lines = [plain(l) for l in render_md(md, preview_width=60).split("\n")]
+        borders = lambda l: tuple(str_display_width(l[:i]) for i, ch in enumerate(l) if ch in "┌┬┐├┼┤└┴┘│")
+        # fzf wraps nothing: every row is a cell inside the preview, and every border lines up
+        self.assertEqual({str_display_width(l) for l in lines}, {59})
+        self.assertEqual({borders(l) for l in lines}, {borders(lines[0])})
+        # Each column reads the same as its cells, only broken over more lines
+        body = lines[next(i for i, l in enumerate(lines) if l.startswith("├")) + 1:-1]
+        for i in range(3):
+            self.assertEqual("".join(l.split("│")[i + 1].replace(" ", "") for l in body),
+                             "".join(r[i].replace(" ", "") for r in rows[1:]))
+
 
 class TestDenoiser(unittest.TestCase):
     def test_agent_chrome_goes_and_real_output_stays_as_is(self):

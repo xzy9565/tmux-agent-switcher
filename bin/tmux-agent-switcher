@@ -127,6 +127,77 @@ def pad_str(s: str, target_width: int) -> str:
     pad = max(0, target_width - curr_w)
     return s + " " * pad
 
+PIECES = re.compile(r"\033\]8;;[^\033]*\033\\|\033\[[0-9;]*m| +|[^ ]")  # escape, spaces, or one character
+STATE = re.compile(r"\033\]8;;([^\033]*)\033\\|(\033\[[0-9;]*m)")
+CLOSERS = "，。、；：！？）】」』》〉”’…"  # never start a line
+OPENERS = "（【「『《〈“‘"  # never end one
+
+def _joins(prev: str, tok: str) -> bool:
+    """True if tok is drawn as part of the character before it, so no line may break between them."""
+    return tok[0] == "\033" or not char_width(tok) or prev == "\u200d" or "\U0001f3fb" <= tok <= "\U0001f3ff"
+
+def _units(text: str) -> List[str]:
+    """Split styled text into runs no line breaks inside, and the spaces between them. CJK breaks between characters."""
+    units, word, prev, prev_wide = [], "", "", False
+    for tok in PIECES.findall(text):
+        if tok[0] == " ":
+            units += [word, tok] if word else [tok]
+            word, prev, prev_wide = "", "", False
+            continue
+        if not _joins(prev, tok):
+            wide = char_width(tok) == 2
+            if prev and (prev_wide or wide) and tok not in CLOSERS and prev not in OPENERS:
+                units.append(word)
+                word = ""
+            prev, prev_wide = tok, wide
+        elif tok[0] != "\033":
+            prev = tok
+        word += tok
+    return units + [word] if word else units
+
+def _cut(run: str, n: int):
+    """Split a run wider than a line into a head at most n cells wide and the rest."""
+    toks = PIECES.findall(run)
+    for i in range(1, len(toks)):
+        if not _joins(toks[i - 1], toks[i]) and str_display_width("".join(toks[:i + 1])) > n:
+            return "".join(toks[:i]), "".join(toks[i:])
+    return run, ""
+
+def wrap_ansi(text: str, limit: int) -> List[str]:
+    """Wrap styled text into lines at most limit cells wide; a run wider than a whole line is cut.
+
+    A span or link the break falls inside closes at the line end and reopens on the next line.
+    """
+    lines, cur, cur_w, gap = [], "", 0, ""
+    for u in _units(text.expandtabs()):
+        if u[0] == " ":
+            gap = u
+            continue
+        uw = str_display_width(u)
+        if cur_w and cur_w + len(gap) + uw > limit:
+            lines.append(cur)
+            cur, cur_w, gap = "", 0, ""
+        if cur_w or not lines:  # spaces start only the first line
+            cur, cur_w = cur + gap, cur_w + len(gap)
+        gap = ""
+        while cur_w + uw > limit:
+            head, u = _cut(u, limit - cur_w)
+            lines.append(cur + head)
+            cur, cur_w, uw = "", 0, str_display_width(u)
+        cur, cur_w = cur + u, cur_w + uw
+    lines.append(cur)
+
+    out, sgr, link = [], "", ""
+    for line in lines:
+        head = sgr + (f"\033]8;;{link}\033\\" if link else "")
+        for url, code in STATE.findall(line):
+            if code:
+                sgr = "" if code == C_RESET else sgr + code
+            else:
+                link = url
+        out.append(head + line + ("\033]8;;\033\\" if link else "") + (C_RESET if sgr else ""))
+    return out
+
 
 # --- Core Data Types (core/types.py) ---
 """Core data types and structures for Tmux Agent Switcher."""
@@ -278,10 +349,10 @@ def get_pane_context(pane_id: str) -> Optional[PaneContext]:
 # --- Unicode Table Renderer (formatters/table.py) ---
 """Unicode box-drawing table renderer for markdown tables."""
 
-def render_table(rows: List[str], style_inline_fn) -> List[str]:
+def render_table(rows: List[str], style_inline_fn, width: int = 0) -> List[str]:
     """
-    Render GFM-style markdown table rows into beautiful Unicode box-drawing tables.
-    Accurately accounts for CJK double-width characters and inline styles.
+    Render GFM-style markdown table rows into Unicode box-drawing tables, measured in display cells.
+    Given the preview width, the widest columns narrow until the table fits it and their cells wrap.
     """
     if not rows:
         return []
@@ -310,70 +381,31 @@ def render_table(rows: List[str], style_inline_fn) -> List[str]:
                 col_widths[i] = max(col_widths[i], str_display_width(style_inline_fn(c)))
 
     col_widths = [max(w, 4) for w in col_widths]
+    # A row is "│ " + cells joined by " │ " + " │", and stays a cell inside the preview, as wrapped text does
+    budget = width - 1 - (3 * num_cols + 1)
+    while width and sum(col_widths) > budget and max(col_widths) > 4:
+        col_widths[col_widths.index(max(col_widths))] -= 1
 
     top = C_BORDER + "┌─" + "─┬─".join("─" * w for w in col_widths) + "─┐" + C_RESET
     mid = C_BORDER + "├─" + "─┼─".join("─" * w for w in col_widths) + "─┤" + C_RESET
     bot = C_BORDER + "└─" + "─┴─".join("─" * w for w in col_widths) + "─┘" + C_RESET
 
-    res = [top]
-    h_cells = []
-    for i in range(num_cols):
-        raw = header[i] if i < len(header) else ""
-        styled = style_inline_fn(raw, C_ICE_BLUE)
-        h_cells.append(pad_str(f"{C_ICE_BLUE}{styled}{C_RESET}", col_widths[i]))
-    res.append(f"{C_BORDER}│{C_RESET} " + f" {C_BORDER}│{C_RESET} ".join(h_cells) + f" {C_BORDER}│{C_RESET}")
-    res.append(mid)
+    def row_lines(cells: List[str], color: str) -> List[str]:
+        wrapped = [wrap_ansi(f"{color}{style_inline_fn(cells[i] if i < len(cells) else '', color)}{C_RESET}", w)
+                   for i, w in enumerate(col_widths)]
+        return [f"{C_BORDER}│{C_RESET} " + f" {C_BORDER}│{C_RESET} ".join(
+                    pad_str(c[k] if k < len(c) else "", w) for c, w in zip(wrapped, col_widths)) + f" {C_BORDER}│{C_RESET}"
+                for k in range(max(map(len, wrapped)))]
 
+    res = [top] + row_lines(header, C_ICE_BLUE) + [mid]
     for r in data_rows:
-        d_cells = []
-        for i in range(num_cols):
-            raw = r[i] if i < len(r) else ""
-            styled = style_inline_fn(raw, C_TD)
-            d_cells.append(pad_str(f"{C_TD}{styled}{C_RESET}", col_widths[i]))
-        res.append(f"{C_BORDER}│{C_RESET} " + f" {C_BORDER}│{C_RESET} ".join(d_cells) + f" {C_BORDER}│{C_RESET}")
-
+        res += row_lines(r, C_TD)
     res.append(bot)
     return res
 
 
 # --- Markdown Syntax Styler (formatters/markdown.py) ---
 """Markdown parser and ANSI syntax highlighter."""
-
-PIECES = re.compile(r"\033\]8;;[^\033]*\033\\|\033\[[0-9;]*m| +|[^ ]")  # escape, spaces, or one character
-STATE = re.compile(r"\033\]8;;([^\033]*)\033\\|(\033\[[0-9;]*m)")
-CLOSERS = "，。、；：！？）】」』》〉”’…"  # never start a line
-OPENERS = "（【「『《〈“‘"  # never end one
-
-def _joins(prev: str, tok: str) -> bool:
-    """True if tok is drawn as part of the character before it, so no line may break between them."""
-    return tok[0] == "\033" or not char_width(tok) or prev == "\u200d" or "\U0001f3fb" <= tok <= "\U0001f3ff"
-
-def _units(text: str) -> List[str]:
-    """Split styled text into runs no line breaks inside, and the spaces between them. CJK breaks between characters."""
-    units, word, prev, prev_wide = [], "", "", False
-    for tok in PIECES.findall(text):
-        if tok[0] == " ":
-            units += [word, tok] if word else [tok]
-            word, prev, prev_wide = "", "", False
-            continue
-        if not _joins(prev, tok):
-            wide = char_width(tok) == 2
-            if prev and (prev_wide or wide) and tok not in CLOSERS and prev not in OPENERS:
-                units.append(word)
-                word = ""
-            prev, prev_wide = tok, wide
-        elif tok[0] != "\033":
-            prev = tok
-        word += tok
-    return units + [word] if word else units
-
-def _cut(run: str, n: int):
-    """Split a run wider than a line into a head at most n cells wide and the rest."""
-    toks = PIECES.findall(run)
-    for i in range(1, len(toks)):
-        if not _joins(toks[i - 1], toks[i]) and str_display_width("".join(toks[:i + 1])) > n:
-            return "".join(toks[:i]), "".join(toks[i:])
-    return run, ""
 
 def wrap_text(text: str, width: int = 0, indent: int = 0) -> List[str]:
     """Wrap styled text to the preview width in display cells, so continuation lines keep their indent or rail.
@@ -383,36 +415,7 @@ def wrap_text(text: str, width: int = 0, indent: int = 0) -> List[str]:
     effective_w = width or int(os.environ.get("FZF_PREVIEW_COLUMNS") or 0)
     if not effective_w or effective_w - indent < 20:
         return [text]
-    limit = effective_w - indent - 1
-    lines, cur, cur_w, gap = [], "", 0, ""
-    for u in _units(text.expandtabs()):
-        if u[0] == " ":
-            gap = u
-            continue
-        uw = str_display_width(u)
-        if cur_w and cur_w + len(gap) + uw > limit:
-            lines.append(cur)
-            cur, cur_w, gap = "", 0, ""
-        if cur_w or not lines:  # spaces start only the first line
-            cur, cur_w = cur + gap, cur_w + len(gap)
-        gap = ""
-        while cur_w + uw > limit:
-            head, u = _cut(u, limit - cur_w)
-            lines.append(cur + head)
-            cur, cur_w, uw = "", 0, str_display_width(u)
-        cur, cur_w = cur + u, cur_w + uw
-    lines.append(cur)
-
-    out, sgr, link = [], "", ""
-    for line in lines:
-        head = sgr + (f"\033]8;;{link}\033\\" if link else "")
-        for url, code in STATE.findall(line):
-            if code:
-                sgr = "" if code == C_RESET else sgr + code
-            else:
-                link = url
-        out.append(head + line + ("\033]8;;\033\\" if link else "") + (C_RESET if sgr else ""))
-    return out
+    return wrap_ansi(text, effective_w - indent - 1)
 
 def style_inline(text: str, base_col: str = "") -> str:
     """Apply inline markdown ANSI formatting: code, links, bold, italic, strikethrough."""
@@ -455,7 +458,7 @@ def render_md(text: str, preview_width: int = 0) -> str:
     def flush_table():
         nonlocal table_buf
         if table_buf:
-            out.extend(render_table(table_buf, style_inline))
+            out.extend(render_table(table_buf, style_inline, preview_width))
             table_buf = []
 
     for line in text.split("\n"):
