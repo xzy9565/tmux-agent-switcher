@@ -844,16 +844,16 @@ class BaseAgentAdapter:
 
 # --- OSC 7501 Protocol Adapter Stub (adapters/osc_7501.py) ---
 """
-OSC 7501 Program Status Protocol Adapter (Forward-Looking Stub).
+OSC 7501 Program Status Protocol Adapter (placeholder).
 Specification: https://mitchellh.com/writing/program-status-osc7501
 
-OSC 7501 is the emerging terminal multiplexer protocol for autonomous AI agents
-to stream structured state machines directly over terminal escape sequences:
-    \033]7501;state=running;agent=claude;sid=<uuid>;turn=3\033\\
+A program reports its state with colon-separated keys, msg base64-encoded:
+    \033]7501;state=working:app=codex:msg=<base64>\033\\
+state is idle, working, done, blocked or error; state=clear drops it.
 
-This adapter establishes the standard protocol bridge, allowing future terminal agents
-implementing OSC 7501 to bypass heuristic disk scraping (JSONL/SQLite) and register
-zero-latency semantic lifecycle events natively.
+tmux 3.8 discards the sequence. tmux master parses it into #{pane_program_state}, #{pane_program_name} and
+#{pane_program_message}: once a release ships them, this adapter can read them with list-panes instead of scraping
+agent stores. Codex CLI already emits it; to check another agent, run rg -a '7501;' on its native binary.
 """
 
 class Osc7501Adapter(BaseAgentAdapter):
@@ -862,7 +862,7 @@ class Osc7501Adapter(BaseAgentAdapter):
     color = C_CYAN_BOLD
 
     def detect(self, pane: PaneContext, full_desc: str, heads: str) -> bool:
-        # Activated when tmux pane option @osc-7501-state or environmental signal exists
+        # Nothing to read until a tmux release parses OSC 7501 (see the module docstring)
         return False
 
     def get_status(

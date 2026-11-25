@@ -378,8 +378,8 @@ Then wire it in:
 While `tmux-agent-switcher` provides robust reverse-engineered heuristic adapters today, the ultimate future of terminal AI agents lies in native multiplexer protocol standards like [OSC 7501 (Program Status Protocol)](https://mitchellh.com/writing/program-status-osc7501):
 
 - [x] **Phase 1: Universal Heuristic Adapters** — Zero-dependency, non-invasive SQLite & JSONL tail forensics across 8 coding agents.
-- [ ] **Phase 2: Protocol Adapter** — [`Osc7501Adapter`](./src/tmux_agent_switcher/adapters/osc_7501.py) is a placeholder: its `detect()` returns `False`, and nothing reads [OSC 7501 escape sequences](https://mitchellh.com/writing/program-status-osc7501) yet.
-- [ ] **Phase 3: Hybrid Detection Engine** — Prefer zero-overhead [OSC 7501](https://mitchellh.com/writing/program-status-osc7501) broadcasts when emitted by supported runtimes (e.g., Claude Code, Ghostty), falling back gracefully to disk heuristics for legacy CLI agents.
+- [ ] **Phase 2: Protocol Adapter** — [`Osc7501Adapter`](./src/tmux_agent_switcher/adapters/osc_7501.py) is a placeholder: its `detect()` returns `False`. tmux 3.8 discards [OSC 7501 escape sequences](https://mitchellh.com/writing/program-status-osc7501); tmux master parses them into `#{pane_program_state}`, `#{pane_program_name}` and `#{pane_program_message}`, which the adapter can read with `list-panes` once a release ships them.
+- [ ] **Phase 3: Hybrid Detection Engine** — Prefer zero-overhead [OSC 7501](https://mitchellh.com/writing/program-status-osc7501) broadcasts from agents that emit them (Codex CLI already does), falling back gracefully to disk heuristics for the rest.
 - [ ] **Phase 4: Ecosystem Advocacy** — Encourage terminal AI agent providers to natively broadcast lifecycle state machines (`\033]7501;state=working:app=claude\033\`, with `state` one of `idle`, `working`, `done`, `blocked`, `error`) directly over PTY.
 
 ---
