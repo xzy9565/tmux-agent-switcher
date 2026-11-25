@@ -83,25 +83,43 @@ C_BAR_USER = "\033[38;2;168;85;247m"
 
 SHELLS = ("zsh", "-zsh", "bash", "sh", "fish")
 
+ANSI_SEQ = re.compile(r"\033\]8;;[^\033]*\033\\|\033\[[0-9;]*[a-zA-Z]")
+
 def char_width(c: str) -> int:
-    """Return monospace display width for a single character (handles CJK/emojis/symbols)."""
+    """Cells tmux gives one code point: 2 if East Asian wide, 0 for marks and format characters, else 1."""
+    cp = ord(c)
+    cat = unicodedata.category(c)
+    if (cat in ("Mn", "Me", "Cf") and cp != 0xAD) or 0x1160 <= cp <= 0x11FF:  # a soft hyphen draws; jamo vowels join
+        return 0
     if unicodedata.east_asian_width(c) in ("W", "F"):
         return 2
-    cp = ord(c)
-    if (0x1F300 <= cp <= 0x1FAFF or 0x2600 <= cp <= 0x27BF or
-        0x1100 <= cp <= 0x115F or 0x2E80 <= cp <= 0xA4CF or
-        0xAC00 <= cp <= 0xD7A3 or 0xF900 <= cp <= 0xFAFF or
-        0xFE10 <= cp <= 0xFE19 or 0xFE30 <= cp <= 0xFE6F or
-        0xFF00 <= cp <= 0xFF60 or 0xFFE0 <= cp <= 0xFFE6 or
-        0x20000 <= cp <= 0x2FA1F):
-        return 2
-    return 1
+    return 2 if cat == "Cn" and 0x1F000 <= cp <= 0x1FAFF else 1  # emoji newer than this Python's Unicode (3.9: 13.0)
 
 def str_display_width(s: str) -> int:
-    """Calculate terminal visual width of a string, ignoring ANSI and OSC sequences."""
-    s_clean = re.sub(r'\033\]8;;[^\033]*\033\\', '', s)
-    s_clean = re.sub(r'\033\[[0-9;]*[a-zA-Z]', '', s_clean)
-    return sum(char_width(c) for c in s_clean)
+    """Cells s takes in tmux, ignoring SGR and OSC 8: what lines a table up and decides where fzf wraps a row.
+
+    Measured in a tmux 3.8 pane with cursor position reports, and fzf 0.75 agrees: ambiguous symbols like ✓ ★ ⚠ take 1,
+    VS16 widens the character before it to 2, and after a ZWJ or a skin tone a wide emoji joins the next into its glyph.
+    """
+    s = ANSI_SEQ.sub("", s)
+    if s.isascii():
+        return len(s)
+    total = last = 0  # last: cells of the previous visible character
+    join = False
+    for c in s:
+        cp = ord(c)
+        if cp == 0xFE0F:
+            if last == 1:
+                total, last = total + 1, 2
+        elif cp == 0x200D:
+            join = last == 2
+        elif join or (0x1F3FB <= cp <= 0x1F3FF and last == 2):
+            join = False
+        else:
+            w = char_width(c)
+            if w:
+                total, last = total + w, w
+    return total
 
 def pad_str(s: str, target_width: int) -> str:
     """Pad string with trailing spaces to match target display width."""

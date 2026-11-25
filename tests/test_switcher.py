@@ -35,6 +35,17 @@ class TestConfigAndWidth(unittest.TestCase):
         styled = f"\033[1;31mhello\033[0m"
         self.assertEqual(str_display_width(styled), 5)
 
+    def test_width_is_what_tmux_draws(self):
+        # Measured in a tmux 3.8 pane with cursor position reports; fzf 0.75 wraps rows at the same widths
+        cases = {
+            "\u2713": 1, "\u2605": 1, "\u26a0": 1, "\u2611": 1, "\u2726": 1, "\u279c": 1, "\U0001f5c2": 1,  # ✓ ★ ⚠ ☑ ✦ ➜ 🗂 take one cell
+            "\u2705": 2, "\u26a1": 2, "\U0001f4cd": 2, "\U0001fae0": 2,  # ✅ ⚡ 📍 🫠 take two, also past Python 3.9's Unicode 13
+            "\u26a0\ufe0f": 2, "\U0001f5c2\ufe0f": 2, "1\ufe0f\u20e3": 2,  # VS16 widens the character before it: ⚠️ 🗂️ 1️⃣
+            "\U0001f468\u200d\U0001f4bb": 2, "\U0001f44d\U0001f3fd": 2, "\U0001f3f3\ufe0f\u200d\U0001f308": 2,  # 👨‍💻 👍🏽 🏳️‍🌈
+            "\U0001f1fa\U0001f1f8": 2, "e\u0301": 1, "a\u200bb": 2, "a\u200db": 2, "a\u00adb": 3,  # 🇺🇸, marks, ZWSP, ZWJ, soft hyphen
+        }
+        self.assertEqual({s: str_display_width(s) for s in cases}, cases)
+
 
 class TestProcessListing(unittest.TestCase):
     """macOS ps prints argv bytes raw: one non-UTF-8 argv used to fail decoding and blank every pane's detection."""
