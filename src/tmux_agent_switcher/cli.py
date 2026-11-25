@@ -323,19 +323,6 @@ def cmd_run(args: argparse.Namespace) -> None:
         pass
 
 
-def cmd_popup(args: argparse.Namespace) -> None:
-    """Directly trigger tmux popup window."""
-    self_path = os.path.abspath(sys.argv[0])
-    w = getattr(args, "width", "88%") or "88%"
-    h = getattr(args, "height", "82%") or "82%"
-    pw = getattr(args, "preview_width", "58%") or "58%"
-
-    subprocess.run([
-        "tmux", "display-popup", "-w", w, "-h", h, "-E",
-        f"{self_path} run --preview-width '{pw}'"
-    ])
-
-
 def read_stdin_payload(timeout: float = 0.05) -> str:
     """Read available payload from stdin without blocking indefinitely on unclosed pipes."""
     if sys.stdin.isatty():
@@ -433,11 +420,6 @@ def main() -> None:
     p_run = sub.add_parser("run", help="Run interactive fzf switcher pipeline")
     p_run.add_argument("--preview-width", default="58%", help="Preview panel width (default: 58%%)")
 
-    p_pop = sub.add_parser("popup", help="Directly trigger tmux popup window")
-    p_pop.add_argument("--width", default="88%", help="Popup width (default: 88%%)")
-    p_pop.add_argument("--height", default="82%", help="Popup height (default: 82%%)")
-    p_pop.add_argument("--preview-width", default="58%", help="Preview panel width (default: 58%%)")
-
     p_not = sub.add_parser("notify", help="Universal AI agent notification dispatcher")
     p_not.add_argument("agent", nargs="?", default="", help="Agent name (e.g. Claude, Cursor, AGY)")
     p_not.add_argument("message", nargs="?", default="", help="Notification message summary")
@@ -461,7 +443,7 @@ def main() -> None:
     args = parser.parse_args()
     dispatch = {
         "list": cmd_list, "preview": cmd_preview, "copy": cmd_copy, "kill": cmd_kill,
-        "run": cmd_run, "popup": cmd_popup, "notify": cmd_notify,
+        "run": cmd_run, "notify": cmd_notify,
         "hook-title": cmd_hook_title, "clear": cmd_clear, "focus-out": cmd_focus_out, "context": cmd_context
     }
     if args.command in dispatch:
