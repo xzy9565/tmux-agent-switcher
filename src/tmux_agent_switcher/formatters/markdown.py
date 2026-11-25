@@ -23,12 +23,15 @@ def wrap_text(text: str, width: int = 0, indent: int = 0) -> List[str]:
 
 
 def style_inline(text: str, base_col: str = "") -> str:
-    """Apply inline markdown ANSI formatting: code, links, bold, italic, strikethrough."""
+    """Apply inline markdown ANSI formatting: code, links, bold, italic, strikethrough.
+
+    Each span turns off only what it turned on (then restores base_col), so a span inside another keeps the outer style.
+    """
     s = text
     code_tokens = []
 
     def save_code(m):
-        code_tokens.append(f"{C_PEACH}{m.group(1)}{C_RESET}{base_col}")
+        code_tokens.append(f"{C_PEACH}{m.group(1)}\033[39m{base_col}")
         return f"\x00CODE_{len(code_tokens)-1}\x00"
 
     s = re.sub(r"`([^`]+)`", save_code, s)
@@ -39,17 +42,18 @@ def style_inline(text: str, base_col: str = "") -> str:
     def render_link(m):
         txt, url = m.group(1), m.group(2)
         code_tokens.append(f"\033]8;;{url}\033\\")  # held back like code, or emphasis rewrites the _ and * in URLs
-        return f"\x00CODE_{len(code_tokens)-1}\x00{C_LINK}{txt}{C_RESET}{base_col}\033]8;;\033\\"
+        return f"\x00CODE_{len(code_tokens)-1}\x00{C_LINK}{txt}\033[24;39m{base_col}\033]8;;\033\\"
 
     s = re.sub(r"\[([^\]]+)\]\((https?://[^\)]+|file://[^\)]+|/[^\)]+)\)", render_link, s)
 
-    s = re.sub(r"\*\*\*([^\*]+?)\*\*\*", rf"{C_WHITE_BOLD}{C_ITALIC}\1{C_RESET}{base_col}", s)
-    s = re.sub(r"___([^_]+?)___", rf"{C_WHITE_BOLD}{C_ITALIC}\1{C_RESET}{base_col}", s)
-    s = re.sub(r"\*\*([^\*]+?)\*\*", rf"{C_WHITE_BOLD}\1{C_RESET}{base_col}", s)
-    s = re.sub(r"(?<!\w)__([^_]+?)__(?!\w)", rf"{C_WHITE_BOLD}\1{C_RESET}{base_col}", s)
-    s = re.sub(r"(?<!\*)\*([^\*\s][^\*]*?[^\*\s]|[^\*\s])\*(?!\*)", rf"{C_ITALIC}\1{C_RESET}{base_col}", s)
-    s = re.sub(r"(?<!\w)_([^_\s][^_]*?[^_\s]|[^_\s])_(?!\w)", rf"{C_ITALIC}\1{C_RESET}{base_col}", s)
-    s = re.sub(r"~~([^~]+?)~~", rf"{C_STRIKE}{C_MUTED}\1{C_RESET}{base_col}", s)
+    s = re.sub(r"\*\*\*([^\*]+?)\*\*\*", rf"{C_WHITE_BOLD}{C_ITALIC}\1\033[22;23;39m{base_col}", s)
+    s = re.sub(r"___([^_]+?)___", rf"{C_WHITE_BOLD}{C_ITALIC}\1\033[22;23;39m{base_col}", s)
+    # Bold may hold single * or _: an italic inside it
+    s = re.sub(r"\*\*((?:[^*]|\*(?!\*))+?)\*\*", rf"{C_WHITE_BOLD}\1\033[22;39m{base_col}", s)
+    s = re.sub(r"(?<!\w)__((?:[^_]|_(?!_))+?)__(?!\w)", rf"{C_WHITE_BOLD}\1\033[22;39m{base_col}", s)
+    s = re.sub(r"(?<!\*)\*([^\*\s][^\*]*?[^\*\s]|[^\*\s])\*(?!\*)", rf"{C_ITALIC}\1\033[23m", s)
+    s = re.sub(r"(?<!\w)_([^_\s][^_]*?[^_\s]|[^_\s])_(?!\w)", rf"{C_ITALIC}\1\033[23m", s)
+    s = re.sub(r"~~([^~]+?)~~", rf"{C_STRIKE}{C_MUTED}\1\033[29;39m{base_col}", s)
 
     for i, tok in enumerate(code_tokens):
         s = s.replace(f"\x00CODE_{i}\x00", tok)
@@ -91,16 +95,9 @@ def render_md(text: str, preview_width: int = 0) -> str:
 
         m_hdr = re.match(r"^(#{1,6})\s*(.+)$", line)
         if m_hdr:
-            lvl = len(m_hdr.group(1))
-            body = style_inline(m_hdr.group(2).strip().rstrip("#").strip())
-            if lvl == 1:
-                out.append(f"\n{C_ICE_BLUE}{C_BOLD}✦ {body}{C_RESET}")
-            elif lvl == 2:
-                out.append(f"\n{C_ICE_BLUE}{C_BOLD}■ {body}{C_RESET}")
-            elif lvl == 3:
-                out.append(f"\n{C_SLATE_BLUE}{C_BOLD}▲ {body}{C_RESET}")
-            else:
-                out.append(f"\n{C_MINT}{C_BOLD}▸ {body}{C_RESET}")
+            col, mark = {1: (C_ICE_BLUE, "✦"), 2: (C_ICE_BLUE, "■"), 3: (C_SLATE_BLUE, "▲")}.get(len(m_hdr.group(1)), (C_MINT, "▸"))
+            body = style_inline(m_hdr.group(2).strip().rstrip("#").strip(), col + C_BOLD)  # spans end back in the header style
+            out.append(f"\n{col}{C_BOLD}{mark} {body}{C_RESET}")
             continue
 
         if line.strip().startswith(">"):

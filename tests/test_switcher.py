@@ -4,7 +4,7 @@ import json
 import os
 import unittest
 from tmux_agent_switcher.core.config import (
-    C_RESET, C_PEACH, C_ICE_BLUE, C_MINT, C_ITALIC, str_display_width
+    C_RESET, C_PEACH, C_ICE_BLUE, C_MINT, str_display_width
 )
 from tmux_agent_switcher.core.types import PaneContext
 from tmux_agent_switcher.core.tmux import ProcessTree
@@ -308,6 +308,22 @@ class TestMarkdownFormatters(unittest.TestCase):
         self.assertIn("\033]8;;https://e.com/a_b_c*d*\033\\", styled)
         self.assertEqual(str_display_width(styled), len("see init and x"))
 
+    def test_a_span_inside_bold_leaves_no_markers_and_the_bold_on_after_it(self):
+        import re
+        def bold_text(styled):  # the characters drawn bold, replaying the SGR codes in order
+            on, out = False, []
+            for code, ch in re.findall(r"\033\[([0-9;]*)m|([^\033])", styled):
+                if ch:
+                    out.append(ch if on else " ")
+                for p in code.split(";") if code else []:
+                    on = True if p == "1" else False if p in ("0", "22") else on
+            return " ".join("".join(out).split())
+        s = style_inline("**bold *italic* bold** and **Fix `foo()`:** next")
+        self.assertEqual(re.sub(r"\033\[[0-9;]*m", "", s), "bold italic bold and Fix foo(): next")
+        self.assertEqual(bold_text(s), "bold italic bold Fix foo():")
+        # A header's own bold also survives the spans in it
+        self.assertEqual(bold_text(render_md("## Run `make` **now** please")), "■ Run make now please")
+
     def test_inline_html_renders_as_text_except_in_code(self):
         import re
         styled = style_inline("cell<br>two <kbd>Ctrl</kbd>+<b>C</b>, not `<b>`")
@@ -344,7 +360,11 @@ class TestMarkdownFormatters(unittest.TestCase):
         lines = render_md(md, preview_width=40).split("\n")
         self.assertEqual([l for l in lines if str_display_width(l) > 39 or re.search(r"[\[\]()*]", plain(l))], [])
         self.assertEqual(sum("\033]8;;https://example.com/docs\033\\" in l for l in lines), 2)
-        self.assertTrue(lines[2].startswith(C_ITALIC), lines)
+        italic = False  # the style the third line starts in, replaying the codes before its text
+        for code in re.findall(r"\033\[([0-9;]*)m", re.match(r"(?:\033\[[0-9;]*m)*", lines[2]).group(0)):
+            for p in code.split(";"):
+                italic = True if p == "3" else False if p in ("0", "23") else italic
+        self.assertTrue(italic, lines)
 
     def test_a_table_wider_than_the_preview_fits_it_and_wraps_its_cells(self):
         import re
