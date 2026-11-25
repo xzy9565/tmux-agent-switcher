@@ -175,3 +175,29 @@ def wrap_ansi(text: str, limit: int) -> List[str]:
                 link = url
         out.append(head + line + ("\033]8;;\033\\" if link else "") + (C_RESET if sgr else ""))
     return out
+
+
+FENCE = re.compile(r"\s*(`{3,})([^`]*)$")
+
+
+def fence_after(line: str, fence: str, strict: bool = False) -> str:
+    """The code fence open after this line, '' outside code: every ``` line toggles, or (strict) as in CommonMark,
+    where only a bare run of at least the opening backticks closes a block."""
+    if not strict:
+        return ("" if fence else "```") if line.lstrip().startswith("```") else fence
+    m = FENCE.match(line)
+    if not m:
+        return fence
+    if not fence:
+        return m.group(1)
+    return "" if len(m.group(1)) >= len(fence) and not m.group(2).strip() else fence
+
+
+def strict_fences(lines: List[str]) -> bool:
+    """Whether to pair a reply's fences as CommonMark does. Toggling keeps a nested example whole (```markdown around
+    ```mermaid ... ```), where CommonMark ends the outer block early; but a lone ```diff line shown inside a code block
+    swaps code and prose for the rest of the reply, which then ends inside a block. Only there does CommonMark take over."""
+    loose = strict = ""
+    for line in lines:
+        loose, strict = fence_after(line, loose), fence_after(line, strict, True)
+    return bool(loose) and not strict

@@ -349,6 +349,16 @@ class TestMarkdownFormatters(unittest.TestCase):
         self.assertIn("☐", rendered)
         self.assertIn("python", rendered)
 
+    def test_a_lone_fence_with_a_language_inside_code_does_not_swap_code_and_prose(self):
+        # A ```diff line shown inside a ```text block once closed it, swapping code and prose for the rest of the reply.
+        # A nested example (```markdown around ```mermaid ... ```) still pairs by toggling: CommonMark would end it early.
+        import re
+        from tmux_agent_switcher.adapters.base import drop_tag_lines
+        plain = lambda md: re.sub(r"\x1b\[[0-9;]*m", "", render_md(md)).split("\n")
+        self.assertEqual(plain("```text\n```diff\n- old\n```\n**done**")[1:], ["  ```diff", "  - old", "─" * 50, "done"])
+        self.assertEqual(plain("```markdown\n```mermaid\ngraph\n```\n```\n**done**")[-1], "done")
+        self.assertEqual(drop_tag_lines("```text\n```diff\n<tag>\n```\n<tag>\nok"), "```text\n```diff\n<tag>\n```\nok")
+
     def test_wrapping_counts_display_cells_and_keeps_spans_whole(self):
         import re
         plain = lambda s: re.sub(r"\033\]8;;[^\033]*\033\\|\033\[[0-9;]*m", "", s)

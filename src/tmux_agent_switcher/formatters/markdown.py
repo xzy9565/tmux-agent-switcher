@@ -6,7 +6,7 @@ from typing import List, Optional
 from ..core.config import (
     C_RESET, C_BOLD, C_ITALIC, C_STRIKE,
     C_ICE_BLUE, C_MINT, C_PEACH, C_SLATE_BLUE,
-    C_BORDER, C_DIVIDER, C_MUTED, C_LINK, C_WHITE_BOLD, wrap_ansi
+    C_BORDER, C_DIVIDER, C_MUTED, C_LINK, C_WHITE_BOLD, wrap_ansi, fence_after, strict_fences
 )
 from .table import render_table
 
@@ -63,7 +63,7 @@ def style_inline(text: str, base_col: str = "") -> str:
 def render_md(text: str, preview_width: int = 0) -> str:
     """Render block Markdown to richly styled ANSI terminal output."""
     out = []
-    in_code = False
+    fence = ""
     table_buf: List[str] = []
 
     def flush_table():
@@ -72,18 +72,21 @@ def render_md(text: str, preview_width: int = 0) -> str:
             out.extend(render_table(table_buf, style_inline, preview_width))
             table_buf = []
 
-    for line in text.split("\n"):
-        if line.strip().startswith("```"):
+    lines = text.split("\n")
+    strict = strict_fences(lines)
+    for line in lines:
+        after = fence_after(line, fence, strict)
+        if after != fence:
             flush_table()
-            in_code = not in_code
+            fence = after
             lang = line.strip().lstrip("`")
             out.append(
                 f"{C_BORDER}─── {lang or 'code'} ──────────────────────────────────────────{C_RESET}"
-                if in_code else f"{C_BORDER}{'─' * 50}{C_RESET}"
+                if fence else f"{C_BORDER}{'─' * 50}{C_RESET}"
             )
             continue
 
-        if in_code:
+        if fence:
             out.append(f"  {C_MINT}{line}{C_RESET}")
             continue
 

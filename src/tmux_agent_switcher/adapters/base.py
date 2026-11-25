@@ -6,7 +6,7 @@ import os
 import re
 from typing import Dict, List, Optional, Tuple, Any
 from ..core.types import PaneContext, PreviewResult
-from ..core.config import C_DIM, SHELLS
+from ..core.config import C_DIM, SHELLS, fence_after, strict_fences
 
 
 def pane_pids(pane: PaneContext, shared_state: Dict[str, Any]) -> List[str]:
@@ -85,12 +85,12 @@ def drop_tag_lines(text: str) -> str:
     Agents wrap prompts in tag lines (<USER_REQUEST>, <user_query>, <untrusted_objective>): drop a tag alone on its line
     outside a code fence. A tag within a line is text: Vec<String>, git checkout <branch>, <Leader>, <br>.
     """
-    out, fence = [], False
-    for line in text.split("\n"):
-        if line.lstrip().startswith("```"):
-            fence = not fence
-        elif not fence and re.fullmatch(r"\s*</?[A-Za-z][\w-]*>\s*", line):
+    lines = text.split("\n")
+    out, fence, strict = [], "", strict_fences(lines)
+    for line in lines:
+        if not fence and re.fullmatch(r"\s*</?[A-Za-z][\w-]*>\s*", line):
             continue
+        fence = fence_after(line, fence, strict)
         out.append(line)
     return "\n".join(out)
 
