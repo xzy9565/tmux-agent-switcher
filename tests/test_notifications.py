@@ -13,7 +13,7 @@ from tmux_agent_switcher.notifications.context import (
     resolve_client_context,
     resolve_notification_context,
 )
-from tmux_agent_switcher.notifications.gateway import handle_notify, handle_focus_out
+from tmux_agent_switcher.notifications.gateway import handle_notify, handle_clear, handle_focus_out
 
 
 class TestPaneContextResolution(unittest.TestCase):
@@ -180,6 +180,23 @@ class TestNotificationGatewayRegression(unittest.TestCase):
         osascript_arg = self.popen_calls[0][2]
         self.assertIn("🔵 Codex", osascript_arg)
         self.assertIn("misc:1.3", osascript_arg)
+
+    def test_border_and_flag_are_written_in_one_tmux_call(self):
+        # pane-focus-in clears only a pane whose flag it sees: written apart, a timed-out flag write strands the border
+        mock_ctx = {"pane": "%45", "location": "misc:1.3", "focused": False, "pane_tty": "", "client_tty": ""}
+        with patch("tmux_agent_switcher.notifications.gateway.resolve_notification_context", return_value=mock_ctx), \
+             patch("tmux_agent_switcher.notifications.gateway._tmux_option", side_effect=lambda k, d: "none" if "notify" in k else "on"), \
+             patch("subprocess.run", side_effect=self._mock_run):
+            handle_notify("Codex", "Done", target_pane="%45", force=False)
+            handle_clear("%45")
+
+        flag_calls = [cmd for cmd in self.tmux_calls if "@pane-needs-input" in cmd]
+        self.assertEqual(len(flag_calls), 2)  # the mark, then the clear
+        for cmd in flag_calls:
+            self.assertIn("pane-border-style", cmd)
+            self.assertIn("pane-active-border-style", cmd)
+            self.assertEqual(cmd.count(";"), 2)  # a three-command list: unseparated, tmux rejects the whole call
+        self.assertFalse(any("pane-border-style" in cmd and "@pane-needs-input" not in cmd for cmd in self.tmux_calls))
 
     def test_unresolved_context_does_not_create_bogus_location_or_mark_wrong_pane(self):
         mock_ctx = {"pane": "", "location": "", "focused": False, "pane_tty": "", "client_tty": ""}

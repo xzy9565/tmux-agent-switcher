@@ -137,12 +137,7 @@ def cmd_list(args: argparse.Namespace) -> None:
                 status, rank = "🔔 input", 0
 
             if running is True and pane.pane_needs_input == "1":
-                try:
-                    subprocess.run(["tmux", "set", "-pu", "-t", pane.pane_id, "@pane-needs-input"], capture_output=True)
-                    subprocess.run(["tmux", "set", "-pu", "-t", pane.pane_id, "pane-border-style"], capture_output=True)
-                    subprocess.run(["tmux", "set", "-pu", "-t", pane.pane_id, "pane-active-border-style"], capture_output=True)
-                except Exception:
-                    pass
+                handle_clear(pane.pane_id)
 
             if mtime:
                 diff = max(0, int(now - mtime))

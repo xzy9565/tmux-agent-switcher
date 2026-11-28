@@ -2297,9 +2297,11 @@ def handle_clear(pane_id: str) -> None:
     if not pane_id:
         return
     try:
-        subprocess.run(["tmux", "set", "-pu", "-t", pane_id, "pane-border-style"], capture_output=True, timeout=0.2)
-        subprocess.run(["tmux", "set", "-pu", "-t", pane_id, "pane-active-border-style"], capture_output=True, timeout=0.2)
-        subprocess.run(["tmux", "set", "-pu", "-t", pane_id, "@pane-needs-input"], capture_output=True, timeout=0.2)
+        # One tmux call, applied all or nothing: the border never outlives the flag pane-focus-in checks.
+        # 1s, as for the mark in handle_notify: under load the call can take longer than 0.2s
+        subprocess.run(["tmux", "set", "-pu", "-t", pane_id, "pane-border-style", ";",
+                        "set", "-pu", "-t", pane_id, "pane-active-border-style", ";",
+                        "set", "-pu", "-t", pane_id, "@pane-needs-input"], capture_output=True, timeout=1.0)
     except Exception:
         pass
 
@@ -2616,9 +2618,12 @@ def handle_notify(
     # Apply In-Tmux visual mark (Layer 2)
     if mark_input == "on" and pane:
         try:
-            subprocess.run(["tmux", "set", "-p", "-t", pane, "pane-border-style", "fg=yellow"], capture_output=True, timeout=0.2)
-            subprocess.run(["tmux", "set", "-p", "-t", pane, "pane-active-border-style", "fg=yellow,bold"], capture_output=True, timeout=0.2)
-            subprocess.run(["tmux", "set", "-p", "-t", pane, "@pane-needs-input", "1"], capture_output=True, timeout=0.2)
+            # One tmux call, applied all or nothing. As three calls, a third one slowed past the timeout by a
+            # loaded machine left the border without the flag pane-focus-in checks, so focusing never cleared it.
+            # 1s, not 0.2s: under load the whole call can take longer, and one cut off leaves no mark at all
+            subprocess.run(["tmux", "set", "-p", "-t", pane, "pane-border-style", "fg=yellow", ";",
+                            "set", "-p", "-t", pane, "pane-active-border-style", "fg=yellow,bold", ";",
+                            "set", "-p", "-t", pane, "@pane-needs-input", "1"], capture_output=True, timeout=1.0)
         except Exception:
             pass
 
@@ -2794,12 +2799,7 @@ def cmd_list(args: argparse.Namespace) -> None:
                 status, rank = "🔔 input", 0
 
             if running is True and pane.pane_needs_input == "1":
-                try:
-                    subprocess.run(["tmux", "set", "-pu", "-t", pane.pane_id, "@pane-needs-input"], capture_output=True)
-                    subprocess.run(["tmux", "set", "-pu", "-t", pane.pane_id, "pane-border-style"], capture_output=True)
-                    subprocess.run(["tmux", "set", "-pu", "-t", pane.pane_id, "pane-active-border-style"], capture_output=True)
-                except Exception:
-                    pass
+                handle_clear(pane.pane_id)
 
             if mtime:
                 diff = max(0, int(now - mtime))
