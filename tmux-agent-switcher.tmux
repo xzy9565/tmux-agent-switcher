@@ -64,8 +64,6 @@ main() {
         # The guard skips the spawn on the far more common focus change with nothing to clear (notify sets the mark).
         tmux set -s focus-events on
         tmux set-hook -g pane-focus-in "if -F '#{@pane-needs-input}' { run-shell '$BIN clear #{pane_id} >/dev/null 2>&1 || true' }"
-        # A turn that ended while you watched alerts once you leave without replying. The guard skips the spawn otherwise.
-        tmux set-hook -g pane-focus-out "if -F '#{@pane-alert-pending}' { run-shell -b '$BIN focus-out #{pane_id} >/dev/null 2>&1 || true' }"
     fi
 }
 

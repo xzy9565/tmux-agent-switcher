@@ -109,7 +109,7 @@ set -g @agent-switcher-mark-input 'on'
 # allow passthrough in the ssh pane: tmux set -p allow-passthrough all (all = also while it is hidden)
 set -g @agent-switcher-notify 'none'
 
-# Automatically register the pane focus hooks that clear and raise alerts (default: on)
+# Automatically register the pane focus hook that clears alerts (default: on)
 set -g @agent-switcher-hook 'on'
 ```
 
@@ -292,9 +292,9 @@ flowchart TB
 tmux-agent-switcher/
 ├── bin/
 │   └── tmux-agent-switcher        # Standalone, zero-dependency executable
-├── tmux-agent-switcher.tmux       # TPM entrypoint: key binding + focus hooks
+├── tmux-agent-switcher.tmux       # TPM entrypoint: key binding + focus hook
 ├── src/tmux_agent_switcher/
-│   ├── cli.py                     # Subcommands: run, list, preview, copy, notify, clear, focus-out, …
+│   ├── cli.py                     # Subcommands: run, list, preview, copy, notify, clear, …
 │   ├── core/
 │   │   ├── config.py              # 24-bit TrueColor palettes & string width calc
 │   │   ├── tmux.py                # Process tree walking & tmux inspection
@@ -320,7 +320,7 @@ tmux-agent-switcher/
 │   │   └── system_monitor.py      # Telemetry monitors
 │   └── notifications/
 │       ├── context.py             # Which pane and client an agent hook belongs to
-│       └── gateway.py             # notify / clear / focus-out: borders, bells, desktop & OSC 9 alerts
+│       └── gateway.py             # notify / clear: borders, bells, desktop & OSC 9 alerts
 ├── scripts/
 │   └── bundle.py                  # Standalone bundle compiler
 ├── tests/
